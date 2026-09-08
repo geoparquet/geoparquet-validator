@@ -1,156 +1,69 @@
 # geoparquet-validator
 
-Validate GeoParquet files. A single Rust binary (and the same code in your browser) that runs the
-abstract tests of the OGC GeoParquet 2.0 draft
-([opengeospatial/geoparquet#304](https://github.com/opengeospatial/geoparquet/pull/304)) on a file,
-a directory, or an object-store URL, and checks GeoParquet 1.0 and 1.1 files against their own
-community specification. No DuckDB, GDAL or PROJ.
+Validate GeoParquet files. One command, also a library, that runs the abstract tests of the
+[OGC GeoParquet 2.0 draft](https://github.com/opengeospatial/geoparquet/pull/304) on a file, a
+directory or an object-store URL, checks GeoParquet 1.0 and 1.1 files against their own community
+specification, and reports the [distribution best practices](https://github.com/opengeospatial/geoparquet/blob/main/format-specs/distributing-geoparquet.md)
+as advice. Written in Rust; no DuckDB, GDAL or PROJ.
 
-**Try it in your browser: https://validator.geoparquet.org/**. Files stay on your machine; a URL is read with range requests.
+**Try it in your browser: https://validator.geoparquet.org/.** Files stay on your machine; a URL is
+read with range requests, so a 500 MB file on S3 takes a few seconds.
 
 ```
-geoparquet-validator check file.parquet
-geoparquet-validator check s3://bucket/prefix/ --max-files 5 --max-rows 100000
-geoparquet-validator check https://host/path/file.parquet --max-rows 100000
+$ geoparquet-validator check buildings.parquet
+buildings.parquet
+  version 1.1.0 · rules: GeoParquet 1.1.0 community specification (the OGC conformance classes are defined for 2.0)
+  PASS  /conf/core/geo-metadata
+  ...
+  => core: 13 pass, 0 fail, 7 skipped: conformant
+  => covering: 6 pass, 0 fail, 0 skipped: conformant
+  => distribution: 2 pass, 0 fail, 0 skipped: conformant
+  distribution best practices (advice, not conformance):
+  ok    spatial ordering: the rows are well ordered: a query window can skip 99 % of the row groups ...
+  ok    row group size: 256 row group(s), at most 28734 rows each (5007414 rows, 538 MB)
+  ok    compression: every column chunk uses ZSTD, the codec the best practices recommend ...
+  ok    bbox covering: a bounding box covering column is declared, so readers can prune pages as well as row groups
 ```
 
-## Installing
+## Installation
 
 | | |
 | --- | --- |
-| Binary | Download the archive for your platform from the [releases page](https://github.com/geoparquet/geoparquet-validator/releases) and put `geoparquet-validator` on your PATH. Linux and macOS on x86-64 and arm64, Windows on x86-64. |
+| macOS, Linux | download the archive for your platform from the [releases](https://github.com/geoparquet/geoparquet-validator/releases) and put `geoparquet-validator` on your PATH (Homebrew tap coming: [#5](https://github.com/geoparquet/geoparquet-validator/issues/5)) |
+| Windows | the `.zip` from the [releases](https://github.com/geoparquet/geoparquet-validator/releases); `winget` coming ([#6](https://github.com/geoparquet/geoparquet-validator/issues/6)) |
+| Python | `pip install geoparquet-validator` gives the command and `import geoparquet_validator` |
 | Rust | `cargo install geoparquet-validator` |
-| Python | `pip install geoparquet-validator`: `import geoparquet_validator` and the same `geoparquet-validator` command |
-| Node, bundlers | `npm install geoparquet-validator` (WebAssembly; the release also carries the package tarball) |
+| conda | coming ([#3](https://github.com/geoparquet/geoparquet-validator/issues/3)) |
+| Node, bundlers | `npm install geoparquet-validator` (WebAssembly) |
 | C, and anything with a foreign-function interface | `libgeoparquet_validator` and `include/geoparquet_validator.h`, in every release archive |
 | From source | `git clone --recurse-submodules https://github.com/geoparquet/geoparquet-validator && cd geoparquet-validator && cargo build --release` |
 
-Tagging a version (`git tag v0.2.0 && git push origin v0.2.0`) builds the binaries with the C
-library, the wheels and the npm package, creates the release and publishes to crates.io and PyPI. The publish uses crates.io trusted publishing
-through GitHub OIDC, so the repository holds no registry token; it is configured on the crate's
-crates.io settings page against this repository and `release.yml`. conda-forge can package the
-released binary.
-
-The repository holds the crate (`src/`), the browser app (`web/`), the fixture generators and their
-verdict manifest (`fixtures/`), and the official test corpus as a submodule (`corpus/`, from
-[geoparquet/geoparquet-testing](https://github.com/geoparquet/geoparquet-testing)). Clone with
-`git clone --recurse-submodules`.
-
-## What it does
+## Usage
 
 ```
-geoparquet-validator check file.parquet [--json] [--class core|covering|distribution]
+geoparquet-validator check file.parquet                      # text report, exit 0 / 1 / 2
+geoparquet-validator check file.parquet --json               # the report as JSON (schemas/report.schema.json)
+geoparquet-validator check file.parquet --class core         # only Core decides the exit code
 geoparquet-validator check s3://bucket/prefix/ --max-files 5 --max-rows 100000 --s3-region us-west-2
-geoparquet-validator check https://host/path/file.parquet     # also gs://, az://, a local directory
-geoparquet-validator corpus corpus  # the corpus submodule: data/ must pass, bad_data/ must fail the mapped test
+geoparquet-validator check https://host/path/file.parquet --max-rows 100000
+geoparquet-validator check ./directory/                      # every .parquet below it
 ```
 
-Remote objects are read with range requests through the `object_store` crate (anonymous when no
-credentials are in the environment; `--opt key=value` passes any object_store option). The footer
-comes down in one request; the scan fetches whole column chunks, merged per row group and split into
-16 MB parts fetched concurrently. `--max-rows N` reads only the first row groups that hold N rows and
-marks the data tests as sampled, which is how a 700 MB Overture file is checked in a few seconds.
-Exit codes: 0 conformant, 1 a test failed, 2 the tool could not run (unreadable path, bad URL).
+`--max-rows N` reads only the first row groups holding N rows; the report then says the data tests
+were sampled, which is not a conformance pass. Exit codes: 0 conformant, 1 a test failed, 2 the tool
+could not run (unreadable path, bad URL, network).
 
-Every abstract test of the three conformance classes is implemented and reports pass / fail / skip
-with a message naming the column and the offending value:
+A report has three conformance classes, each `conformant`, `NOT CONFORMANT` or `not claimed`:
 
-| Class | Tests | Notes |
+| Class | Applies to | Tests |
 | --- | --- | --- |
-| Core | 20 | `media-type` always skipped (not testable on a file). |
-| Bounding Box Covering | 6 | Skipped as "not claimed" when no column declares `covering`. |
-| Cloud-Optimized Distribution | 2 | `spatial-order` uses the pruning metric with gpio's parameters (geoparquet-io #774: 20 windows of 10 % side, seed 42, pass at 0.70 of the ideal tiling's skip rate, verdict withheld below five row groups) and also prints the area factor Σ row-group bbox area / extent. The window sequence differs from gpio's, so near-threshold verdicts can differ. |
+| Core | every file | 20 |
+| Bounding Box Covering | files that declare a `covering` | 6 |
+| Cloud-Optimized Distribution | an optional profile for direct cloud access | 2, plus the advice |
 
-Design: one pass over the data per geometry column (arrow record batches, WKB decoded by a
-150-line ISO WKB reader that rejects EWKB), everything else from the footer. Schema validation
-uses the vendored GeoParquet 2.0.0 `schema.json` and the PROJJSON 0.7 schema (registered under its
-URL, so the tool works offline; validated against the PROJJSON `crs` definition only, because the
-full PROJJSON schema also accepts datums and ellipsoids). CRS equality is by authority:code after
-normalising EPSG:4326 / OGC:CRS84; a PROJJSON without an `id` is reported as "cannot compare
-without a CRS library" rather than passed or failed.
-
-## Results (2026-09-05)
-
-this corpus at `main` 6f7ede1 (48 valid + 26 defective files), whole run 0.03 s (0.7 s before the PROJJSON schema was vendored, all of it a network fetch):
-
-* data/: 48 of 48 pass Core; all 48 carry geospatial statistics; spatial order not measurable
-  (single row group).
-* bad_data/: 24 of 24 files with an OGC requirement are failed by the mapped test; the remaining
-  two (`edges_mismatch`, `epoch_unsupported`) have no OGC requirement, as expected.
-
-33 adversarial fixtures of the author's (`fixtures/make_fixtures.py`: 6/8-element and antimeridian bbox
-violations, 11 covering positives/negatives incl. nullness mismatch and nested column, 7 Parquet
-`crs` forms: `EPSG:3857`, inline PROJJSON, `srid:0`, `projjson:<key>`, mismatches): all behave as
-intended.
-
-Multi-row-group files (DuckDB, `GEOPARQUET_VERSION 'V2'`), full Core + Distribution run, Docker on an
-M-series laptop:
-
-| File | Rows | Row groups | Wall time | spatial-order (ours) | gpio `check spatial` (main) |
-| --- | --- | --- | --- | --- | --- |
-| points, random order | 1 000 000 | 10 | 0.41 s | FAIL ratio 0.00 | poor |
-| points, Hilbert | 1 000 000 | 10 | 0.22 s | PASS ratio 0.93 | ordered |
-| 20 clusters, Hilbert | 500 000 | 10 | 0.16 s | PASS ratio 1.00 | ordered |
-| squares, DuckDB ST_Hilbert on polygons | 200 000 | 4 | 0.17 s | ratio 0.67, verdict withheld (< 5 row groups) | poor |
-| same squares after `gpio sort hilbert` | 200 000 | 4 | 0.17 s | ratio 0.93, verdict withheld (< 5 row groups) | ordered |
-
-The two tools agree on every file. The wall time includes decoding every WKB value; gpio's full
-`check spec` on the same files takes several seconds because of the DuckDB start-up and sampling.
-
-Remote files, from a laptop (about 5 MB/s to S3):
-
-| Target | Rows read | Bytes / requests | Wall time | Result |
-| --- | --- | --- | --- | --- |
-| opengeospatial/geoparquet `examples/example.parquet` (GitHub raw) | all | 0.03 MB / 1 | 0.26 s | Core conformant |
-| Overture 2026-08-19.0 buildings part-00000 (5.0 M rows, S3) | first 100 000 | 21 MB / 2 | 6 s | conformant under the 1.1 rules |
-| Overture buildings partition (512 objects), `--max-files 2` | 100 000 each | 2 x 21 MB | 12 s | same, per file |
-| Overture 2026-08-19.0 divisions/division_area part-00000 (721 MB, 138 481 polygons, S3), whole file | all | 804 MB / 341 | 240 s | every WKB polygon decoded; same verdicts |
-| source.coop / geoarrow-data 1.0 files (HTTPS) | all | 1 to 8 MB / 1 | 1 to 4 s | 1.0 files fail version and logical type as expected |
-
-## Writer zoo (2026-09-06)
-
-The same 250 features (200 points, 50 CCW squares, lon/lat) written by every writer at hand
-(`fixtures/writer_zoo.py`), then checked. Only two writers produce GeoParquet 2.0 today:
-
-| Writer | Asked for | Result |
-| --- | --- | --- |
-| DuckDB 1.5.5 spatial, `GEOPARQUET_VERSION 'V2'` | CRS84 | **Core conformant**. Parquet `crs` is inline PROJJSON (schema v0.5) EPSG:4326, `geo.crs` PROJJSON EPSG:4326. |
-| DuckDB 1.5.5, same, after `ST_Transform` to EPSG:3857 | EPSG:3857 | **Mislabelled**: DuckDB geometries carry no CRS, so the file declares the default OGC:CRS84 while coordinates are metres. Caught by `crs-default` (250 geometries outside lon/lat range) and `bbox-crs`. A DuckDB user cannot fix this from `COPY` today. |
-| SedonaDB 0.4.1, `geoparquet_version="2.0"` | CRS84 and EPSG:3857 | **Core conformant** both; PROJJSON (v0.7) in both the Parquet `crs` and `geo.crs`. |
-| GDAL 3.12.2 `ogr2ogr -lco USE_PARQUET_GEO_TYPES=YES` | CRS84 and EPSG:3857 | Native GEOMETRY types with consistent CRS, covering bbox in the right order, but `geo.version` is **1.1.0**: GDAL has no 2.0.0 writer yet. Under the 1.1 rules the file is conformant, with a note that it carries a 2.0 logical type. `USE_PARQUET_GEO_TYPES=ONLY` writes no `geo` block at all. |
-| GeoPandas 1.1.4 | `schema_version="2.0.0"` | Rejected: `must be one of 0.1.0 ... 1.1.0`. Its 1.1.0 output (with `write_covering_bbox`) is well formed, bbox fields in the right order. |
-| geoarrow-pyarrow 0.3 `write_geoparquet_table` | default | Writes 1.0.0, no logical type, `crs: null` for lon/lat data. |
-| pyarrow 25 alone | native type only | GEOMETRY logical type, no `geo` block: not GeoParquet, as the spec says. |
-
-## Public sample sweep (2026-09-07)
-
-`fixtures/public_samples.sh` downloads the example files other projects publish (the specification's
-own examples at 1.0.0, 1.1.0 and main; GDAL's autotest Parquet data; Apache Sedona's test data;
-geoarrow-data) and checks them: 38 files, no crashes, every verdict explainable. Its main find: the
-**1.1.0 specification's own example file** orders its bbox struct `xmax, xmin, ymax, ymin`, so the
-"MUST be ordered in this same way" sentence was never followed even by the reference example. That
-evidence retired the rule (SI-26, dropped when PR #302 merged). GDAL's 1.1 test files, including one
-with a covering, are fully conformant under the 1.1 rules.
-Pre-1.0 files (GeoParquet 0.1.0, 0.4.0) are checked as 2.0 with a note, since their rules are not
-implemented.
-
-## Hardening round (2026-09-06)
-
-Three independent reviews (spec-conformance, hostile input, Rust code/perf) and 150+ crafted files.
-No crash, hang or memory blow-up was found; the verdict and text problems they found are fixed here:
-bounded WKB allocations and count checks, Multi* member type and dimension checks, NaN only allowed
-for empty points, shoelace computed relative to the first vertex, the ideal tiling with exactly n
-tiles, non-finite statistics rejected, one-dimensional extents measured, wrapping row-group boxes
-split, strict `<authority>:<code>` parsing and PROJJSON `ids`, CRS comparison never by name, inconclusive
-CRS comparisons reported as notes instead of failures, `geo-metadata` validated against the published
-schema (and `crs-projjson` against the PROJJSON `crs` definition), the antimeridian form of `bbox`
-required to be justified by the data, a missing `columns` member no longer failing nesting, a missing
-bounding-box column failing only `bbox-paths`, `encoding` missing or non-string failing
-`geometry-column-type`, dictionary-hinted binary columns read as WKB, unread columns reported on every
-data test, tool errors distinguished from conformance failures (exit 2), `--class` validated. Unit
-tests cover the decoder and the metric (`cargo test`).
-
-## Use it in your own code
+GeoParquet 1.0 and 1.1 files are checked against their own version's rules under the same test
+identifiers; the report says which rules were applied. Details of every check, the 1.x rules, the
+spatial-ordering metric and the browser build are in [docs/design.md](docs/design.md).
 
 Every surface returns the same report, described by [`schemas/report.schema.json`](schemas/report.schema.json):
 the 28 outcomes (`pass`, `fail`, `skip`, each with a message), the version the file declares, the rules
@@ -207,95 +120,54 @@ gpv_free(report);
 `examples/check.c` is a complete program; build the library with `cargo build --release --features capi`.
 Go through cgo, Java, R, .NET and Julia can call the same four functions.
 
-## Distribution best practices, as advice
+## How it is tested
 
-Alongside the conformance verdicts, every report ends with advice on the practices in
-`format-specs/distributing-geoparquet.md`, measured on the file and never counted as conformance:
-how well the rows are spatially ordered (the skip rate a query window achieves, against an ideal
-tiling of the same number of row groups, with the sort command to fix it), the row group sizes
-against the 150 000-row ceiling, the compression codec, whether a bounding box covering column is
-present, and whether the file is large enough to be worth partitioning. Each item is `good`,
-`consider` or `poor`, in the text output and in the JSON under `advice`.
+Against the official [test corpus](https://github.com/geoparquet/geoparquet-testing) (48 valid files
+pass, 24 defective files caught), 198 generated fixtures with a verdict manifest, files from seven
+writers (DuckDB, SedonaDB, GDAL, GeoPandas, geoarrow, pyarrow), the public example files of the
+specification, GDAL, Apache Sedona and geoarrow-data, and real files on S3 including Overture Maps.
+All of it is in [docs/testing.md](docs/testing.md); what it surfaced for the specification is in
+[docs/findings.md](docs/findings.md).
 
-## GeoParquet 1.0 and 1.1 files
+## Support
 
-The abstract tests are written for 2.0, but most files in the wild are still 1.0 or 1.1, so the
-checker reads `version` and applies that version's own rules with the same test identifiers: the
-1.0.0 or 1.1.0 JSON Schema (with PROJJSON 0.5 / 0.7), `WKB` plus the 1.1 GeoArrow encodings (checked
-structurally: a struct of x, y[, z] under the right number of list levels; their data is not decoded),
-no `M` types, `edges` limited to planar and spherical, no Parquet `crs` comparison unless the file
-carries native types, and the bbox covering column's Parquet statistics as the row-group statistics
-source for the Distribution class. The report says which rules were applied. Overture 2026-08-19.0
-buildings under the 1.1 rules: Core, Covering and Distribution conformant, with spatial order measured
-from the covering statistics over 256 row groups.
+Questions and bug reports: [issues](https://github.com/geoparquet/geoparquet-validator/issues). A
+report that looks wrong is worth an issue with the file, or its URL, attached; the validator is meant
+to be right about the specification, and where it is not, the specification or the validator gets
+fixed.
 
-## In the browser
+## Contributing
 
-`web/` is the same checker compiled to WebAssembly behind a one-page UI: drop a file (it never leaves
-the machine) or paste a URL (read with range requests from a Web Worker, so the host must allow
-cross-origin reads; public S3 buckets with CORS, GitHub raw and source.coop do; Overture's bucket
-does). URL checks default to the first 100 000 rows, which is a sample, not a conformance pass.
-Published at https://validator.geoparquet.org/. Build with `sh web/build.sh` (needs the `wasm32-unknown-unknown`
-target, `wasm-bindgen-cli` matching `Cargo.lock`, clang for zstd, optionally `wasm-opt`); CI builds
-it as the `web-checker` artifact. Only `gpq`'s 1.0 page existed before; there was no 2.0 validator
-one could point at a URL.
-
-## Test suite
-
-Four layers, all but the last in CI (`.github/workflows/conformance.yml`):
-
-1. `cargo test`: unit tests of the WKB decoder and the spatial-order metric.
-2. `geoparquet-validator corpus corpus`: the corpus submodule's `data/` must pass Core and `bad_data/` must fail
-   the test mapped from its `expected_failure`.
-3. `geoparquet-validator verify fixtures/out`: 198 generated fixtures in four sets (the author's, and
-   the spec, hostile and code reviewers') against `fixtures/expected.json`, the manifest of which
-   tests must fail for each file. See [`fixtures/README.md`](fixtures/README.md).
-4. `fixtures/remote_smoke.sh`: the public files on S3 and HTTPS listed above (needs the network).
-
-## Findings for the spec and the corpus
-
-0. **The bbox field-order rule is gone, and this checker is why.** Every Overture Maps file orders
-   its bbox struct `xmin, xmax, ymin, ymax`; the 1.1.0 specification's own `examples/example.parquet`
-   orders it `xmax, xmin, ymax, ymin`; Apache Sedona's 1.1 test file does the same. GeoParquet 1.1 and
-   the draft of PR #302 required the order, and no validator had ever checked it. #302 merged on
-   2026-09-07 **without** the rule for the four-field form (the six-field form keeps its order), and
-   the checker follows the merged text: those three files are now Covering conformant.
-1. `bad_data/crs-invalid-projjson.parquet` (a `crs` without `type`) passes the PROJJSON JSON Schema:
-   the schema's top-level `oneOf` also accepts ellipsoids, datums and operations, and `{id, name}` is
-   a valid ellipsoid. The OGC test `/conf/core/crs-projjson` should say "PROJJSON **CRS** object"
-   (the schema's `definitions/crs`), and so should `geoparquet.md`. Done here.
-2. `bad_data/epoch-on-unsupported-crs.parquet` carries a stub `crs` (`{"type": "GeographicCRS",
-   "id": ...}`) that is not valid PROJJSON (no name, datum or coordinate system). The fixture wants to
-   test only the epoch; it should carry a full PROJJSON. gpio does not notice because its
-   `crs_valid` check only looks at `type`.
-3. pyarrow 25 writes an unset Parquet `crs` when asked for `EPSG:4326` or `OGC:CRS84`; fine for
-   the spec (both mean OGC:CRS84) but a test suite must treat "unset" and those two as equal.
-4. `schema.json` reaches the PROJJSON schema through a remote `$ref`; validators must vendor it or
-   they need the network at validation time.
-5. DuckDB `ORDER BY ST_Hilbert(...)` on polygons produced a file whose first row group spans the
-   whole extent (rows 0-51 200 came from everywhere); `gpio sort hilbert` sorts the same data
-   correctly. Worth a look by whoever owns the DuckDB spatial example in the guide.
-
-## What a real implementation would still need
-
-* Semantic CRS comparison (PROJJSON without `id`, `srid:<n>` with a registry): needs PROJ or a
-  registry table; the prototype reports "cannot compare" instead. This is the one place where
-  "pure Rust" costs something real.
-* GeoArrow-encoded geometry columns are not read (GeoParquet 2.0 Core requires WKB, so the
-  abstract tests do not need them either).
-* A report format agreed with OGC CITE, packaging (cargo install, static binaries, a Python wheel
-  via maturin if wanted), and one arrow pass for files with several geometry columns (today each
-  geometry column is scanned separately).
-* More unit tests; the fixture sets and their manifest are the regression suite today.
-
-## Building
-
-`cargo build --release` (the toolchain is pinned to 1.98.0 by `rust-toolchain.toml`; CI uses the same version), or with Docker:
+Pull requests are welcome. Clone with `--recurse-submodules`, build with `cargo build --release`
+(the toolchain is pinned by `rust-toolchain.toml`), and run what CI runs:
 
 ```
-docker run --rm -v "$PWD":/work -w /work rust:1-slim-bookworm cargo build --release
+cargo fmt --check && cargo clippy --release --all-targets -- -D warnings && cargo test --release
+./target/release/geoparquet-validator corpus corpus
+cd corpus/scripts && uv sync && uv run python ../../fixtures/generate.py && cd ../..
+./target/release/geoparquet-validator verify fixtures/out
 ```
 
-Dependencies: parquet 59.3, arrow-array, jsonschema (no network features), serde_json, anyhow;
-with the default `cli` feature also clap, object_store (aws, gcp, azure, http), tokio, futures, url;
-with the `wasm` feature wasm-bindgen and js-sys instead. MSRV 1.88.
+A change that alters a verdict must update `fixtures/expected.json` (`verify --update`, then review
+the diff). The abstract tests this tool implements live in
+[opengeospatial/geoparquet#304](https://github.com/opengeospatial/geoparquet/pull/304); a
+disagreement with them is a bug in one or the other and belongs in an issue there or here.
+
+## Layout
+
+`src/` the crate (features `cli`, `remote`, `wasm`, `python`, `capi`) · `web/` the browser app ·
+`python/` the Python package · `npm/` the npm package · `include/`, `examples/` the C interface ·
+`fixtures/` the generators and the verdict manifest · `corpus/` the official test corpus, as a
+submodule · `packaging/` Homebrew, winget and conda files · `docs/` the long version of this README.
+
+## Acknowledgements
+
+Built for the [OGC GeoParquet Standards Working Group](https://www.ogc.org/) as the executable
+counterpart of the 2.0 abstract tests, alongside the community validator
+[geoparquet-io](https://github.com/geoparquet/geoparquet-io), whose spatial-ordering metric this
+tool reuses. The test corpus is maintained in
+[geoparquet/geoparquet-testing](https://github.com/geoparquet/geoparquet-testing).
+
+## License
+
+[Apache-2.0](LICENSE).
