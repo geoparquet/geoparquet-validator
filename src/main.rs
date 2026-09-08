@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use url::Url;
 
-use checks::{Options, Report, Status};
+use checks::{Level, Options, Report, Status};
 use source::{Local, RemoteOptions, open_remote};
 
 #[derive(Parser)]
@@ -139,6 +139,17 @@ fn print_text(r: &Report, class: Class) {
     let e = extras(r);
     if !e.is_empty() {
         println!("{e}");
+    }
+    if class == Class::All && !r.advice.is_empty() {
+        println!("  distribution best practices (advice, not conformance):");
+        for a in &r.advice {
+            let tag = match a.level {
+                Level::Good => "ok  ",
+                Level::Consider => "note",
+                Level::Poor => "poor",
+            };
+            println!("  {tag}  {}: {}", a.topic, a.message);
+        }
     }
 }
 

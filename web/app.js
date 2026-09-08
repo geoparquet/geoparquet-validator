@@ -38,7 +38,17 @@ function render(report, label) {
     }
     html += `</tbody></table></div>`;
   }
-  html += `</div><details class="json"><summary>Report as JSON</summary><pre>${esc(JSON.stringify(report, null, 2))}</pre></details></div>`;
+  html += `</div>`;
+  if (report.advice && report.advice.length) {
+    html += `<h3>Distribution best practices <small>advice, not conformance</small></h3><div class="tablewrap"><table class="tests"><tbody>`;
+    const level = { good: "pass", consider: "skip", poor: "fail" };
+    for (const a of report.advice) {
+      const s = level[a.level] || "skip";
+      html += `<tr class="${s}"><td class="state"><span class="pill ${s}">${a.level}</span></td><td class="id">${esc(a.topic)}</td><td class="msg">${fmtMsg(a.message)}</td></tr>`;
+    }
+    html += `</tbody></table></div>`;
+  }
+  html += `<details class="json"><summary>Report as JSON</summary><pre>${esc(JSON.stringify(report, null, 2))}</pre></details></div>`;
   r.innerHTML = html;
 }
 

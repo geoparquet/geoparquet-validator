@@ -182,6 +182,24 @@ pub struct Options {
     pub max_rows: Option<usize>,
 }
 
+/// How a distribution practice looks on this file. Advice never decides conformance: the
+/// Cloud-Optimized Distribution class states two requirements, and the rest are recommendations
+/// of the GeoParquet distribution best practices.
+#[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum Level {
+    Good,
+    Consider,
+    Poor,
+}
+
+#[derive(Serialize)]
+pub struct Advice {
+    pub topic: &'static str,
+    pub level: Level,
+    pub message: String,
+}
+
 #[derive(Serialize)]
 pub struct Report {
     pub file: String,
@@ -193,6 +211,8 @@ pub struct Report {
     pub version: String,
     /// which rules were applied, in words
     pub rules: String,
+    /// how the distribution best practices look on this file (never a conformance verdict)
+    pub advice: Vec<Advice>,
 }
 
 impl Report {
@@ -425,6 +445,18 @@ fn geoarrow_shape(f: &SchemaType, encoding: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+/// Bytes as something a person reads.
+fn human(bytes: i64) -> String {
+    let b = bytes.max(0) as f64;
+    if b >= 1e9 {
+        format!("{:.1} GB", b / 1e9)
+    } else if b >= 1e6 {
+        format!("{:.0} MB", b / 1e6)
+    } else {
+        format!("{:.0} kB", b / 1e3)
+    }
 }
 
 fn stat_min_max(cc: &ColumnChunkMetaData) -> (Option<f64>, Option<f64>) {
@@ -748,6 +780,7 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
     let sampled = std::cell::Cell::new(false);
     let version = std::cell::RefCell::new(String::from("unknown"));
     let rules = std::cell::RefCell::new(String::from(Spec::V2_0.rules()));
+    let advice: std::cell::RefCell<Vec<Advice>> = std::cell::RefCell::new(Vec::new());
     let finish = |mut out: Vec<Outcome>, reason: &str| {
         for id in ALL_IDS {
             if !out.iter().any(|o| o.id == id) {
@@ -762,6 +795,7 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
             sampled: sampled.get(),
             version: version.borrow().clone(),
             rules: rules.borrow().clone(),
+            advice: advice.borrow_mut().drain(..).collect(),
         }
     };
 
@@ -1560,22 +1594,216 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
     }
     out.push(t.finish());
 
-    out.push(match primary_boxes {
+    let metric = match &primary_boxes {
         Some(b) if b.iter().all(Option::is_some) => {
-            let boxes: Vec<[f64; 4]> = b.into_iter().flatten().collect();
-            match spatial::measure(&boxes) {
-                Err(reason) => skip(DIST_SPATIAL_ORDER, reason),
-                Ok(m) => {
-                    let msg = format!(
-                        "{} row groups: skip rate {:.3} vs ideal tiling {:.3} (ratio {:.2}, pass at {:.2}); area factor {:.2}",
-                        m.row_groups, m.file_skip, m.ideal_skip, m.ratio, spatial::PASS_RATIO, m.area_factor
-                    );
-                    Outcome { id: DIST_SPATIAL_ORDER, status: if m.ratio >= spatial::PASS_RATIO { Status::Pass } else { Status::Fail }, message: msg }
-                }
+            let boxes: Vec<[f64; 4]> = b.iter().flatten().copied().collect();
+            Some(spatial::measure(&boxes))
+        }
+        _ => None,
+    };
+    out.push(match &metric {
+        None => skip(
+            DIST_SPATIAL_ORDER,
+            "primary column has no row-group bounding boxes (see geospatial-statistics)",
+        ),
+        Some(Err(reason)) => skip(DIST_SPATIAL_ORDER, reason.clone()),
+        Some(Ok(m)) => Outcome {
+            id: DIST_SPATIAL_ORDER,
+            status: if m.ratio >= spatial::PASS_RATIO {
+                Status::Pass
+            } else {
+                Status::Fail
+            },
+            message: format!(
+                "{} row groups: skip rate {:.3} vs ideal tiling {:.3} (ratio {:.2}, pass at {:.2}); area factor {:.2}",
+                m.row_groups, m.file_skip, m.ideal_skip, m.ratio, spatial::PASS_RATIO, m.area_factor
+            ),
+        },
+    });
+
+    // Advice on the distribution best practices. None of it decides conformance; it is the
+    // guidance of format-specs/distributing-geoparquet.md, measured on this file.
+    {
+        let add = |topic: &'static str, level: Level, message: String| {
+            advice.borrow_mut().push(Advice {
+                topic,
+                level,
+                message,
+            })
+        };
+
+        // spatial ordering
+        match &metric {
+            Some(Ok(m)) if m.ratio >= 0.9 => add(
+                "spatial ordering",
+                Level::Good,
+                format!(
+                    "the rows are well ordered: a query window can skip {:.0} % of the row groups, {:.0} % of what an ideal tiling of {} row groups would allow",
+                    m.file_skip * 100.0,
+                    m.ratio * 100.0,
+                    m.row_groups
+                ),
+            ),
+            Some(Ok(m)) if m.ratio >= spatial::PASS_RATIO => add(
+                "spatial ordering",
+                Level::Consider,
+                format!(
+                    "the rows are ordered, but not tightly: a query window skips {:.0} % of the row groups against {:.0} % for an ideal tiling. Sorting by a space-filling curve (`ORDER BY ST_Hilbert(...)` in DuckDB, `gpio sort hilbert`) usually closes the gap",
+                    m.file_skip * 100.0,
+                    m.ideal_skip * 100.0
+                ),
+            ),
+            Some(Ok(m)) => add(
+                "spatial ordering",
+                Level::Poor,
+                format!(
+                    "the rows are not spatially ordered: a query window can skip only {:.0} % of the row groups, against {:.0} % for an ideal tiling, so readers download most of the file for a small area. Sort by a space-filling curve before publishing (`ORDER BY ST_Hilbert(...)` in DuckDB, `gpio sort hilbert`)",
+                    m.file_skip * 100.0,
+                    m.ideal_skip * 100.0
+                ),
+            ),
+            Some(Err(_)) if meta.num_row_groups() <= 1 => add(
+                "spatial ordering",
+                Level::Consider,
+                "the file is a single row group, so there is nothing for a reader to skip. That is fine for a small file; larger ones should be written in row groups and sorted spatially".to_string(),
+            ),
+            Some(Err(reason)) => add(
+                "spatial ordering",
+                Level::Consider,
+                format!("not measured: {reason}"),
+            ),
+            None => {}
+        }
+
+        // row group size
+        let rows: Vec<i64> = meta.row_groups().iter().map(|rg| rg.num_rows()).collect();
+        if !rows.is_empty() {
+            let max = *rows.iter().max().unwrap();
+            let total: i64 = rows.iter().sum();
+            let bytes: i64 = meta
+                .row_groups()
+                .iter()
+                .map(|rg| rg.compressed_size())
+                .sum();
+            let size = human(bytes);
+            if max > 150_000 {
+                add(
+                    "row group size",
+                    Level::Poor,
+                    format!(
+                        "the largest row group holds {max} rows ({} row groups, {total} rows, {size}). A reader can only skip whole row groups, so keep them at 150 000 rows or fewer",
+                        rows.len()
+                    ),
+                );
+            } else if rows.len() > 1 && max < 5_000 {
+                add(
+                    "row group size",
+                    Level::Consider,
+                    format!(
+                        "row groups are small ({max} rows at most, {} of them). Very small row groups add footer and request overhead; a few tens of thousands of rows each is a good target",
+                        rows.len()
+                    ),
+                );
+            } else if rows.len() == 1 && total > 150_000 {
+                add(
+                    "row group size",
+                    Level::Poor,
+                    format!(
+                        "the file is a single row group of {total} rows ({size}), so a reader cannot skip any of it. Write row groups of at most 150 000 rows"
+                    ),
+                );
+            } else {
+                add(
+                    "row group size",
+                    Level::Good,
+                    format!(
+                        "{} row group(s), at most {max} rows each ({total} rows, {size})",
+                        rows.len()
+                    ),
+                );
             }
         }
-        _ => skip(DIST_SPATIAL_ORDER, "primary column has no row-group bounding boxes (see geospatial-statistics)"),
-    });
+
+        // compression
+        let mut codecs: BTreeMap<String, u64> = BTreeMap::new();
+        for rg in meta.row_groups() {
+            for cc in rg.columns() {
+                // Parquet records the codec, not its level, so drop the level the crate fills in
+                let codec = format!("{:?}", cc.compression());
+                let codec = codec
+                    .split('(')
+                    .next()
+                    .unwrap_or(&codec)
+                    .to_ascii_uppercase();
+                *codecs.entry(codec).or_default() += cc.compressed_size().max(0) as u64;
+            }
+        }
+        let names: Vec<&str> = codecs.keys().map(String::as_str).collect();
+        if !names.is_empty() {
+            let list = names.join(", ");
+            if names.iter().all(|c| c.starts_with("ZSTD")) {
+                add(
+                    "compression",
+                    Level::Good,
+                    format!(
+                        "every column chunk uses {list}, the codec the best practices recommend (the level is not recorded in the file)"
+                    ),
+                );
+            } else if names.iter().any(|c| c.starts_with("UNCOMPRESSED")) {
+                add(
+                    "compression",
+                    Level::Poor,
+                    format!(
+                        "some column chunks are stored uncompressed ({list}). ZSTD typically halves a GeoParquet file at no cost to readers"
+                    ),
+                );
+            } else {
+                add(
+                    "compression",
+                    Level::Consider,
+                    format!(
+                        "column chunks use {list}. ZSTD usually gives a better ratio than Snappy at a similar decompression speed, and the best practices recommend it"
+                    ),
+                );
+            }
+        }
+
+        // a bbox covering column adds page-level pruning on top of the row-group statistics
+        let has_covering = columns.values().any(|c| c.get("covering").is_some());
+        if !has_covering {
+            let (level, message) = if spec == Spec::V2_0 {
+                (Level::Consider, "no bounding box covering column. The native statistics already let readers skip row groups; a covering column adds the Parquet page index, so readers can skip pages within a row group, and serves readers that predate the native statistics".to_string())
+            } else {
+                (
+                    Level::Poor,
+                    format!(
+                        "no bounding box covering column, so a {} file offers readers no spatial statistics at all. Add one, or publish 2.0 with native geometry types",
+                        spec.versions()[0]
+                    ),
+                )
+            };
+            add("bbox covering", level, message);
+        } else {
+            add("bbox covering", Level::Good, "a bounding box covering column is declared, so readers can prune pages as well as row groups".to_string());
+        }
+
+        // dataset-level: partitioning
+        let bytes: i64 = meta
+            .row_groups()
+            .iter()
+            .map(|rg| rg.compressed_size())
+            .sum();
+        if bytes > 2_000_000_000 {
+            add(
+                "file size",
+                Level::Consider,
+                format!(
+                    "the file is about {:.1} GB. The best practices suggest partitioning a dataset above roughly 2 GB into files of 200 MB to 1 GB, so readers can skip whole files",
+                    bytes as f64 / 1e9
+                ),
+            );
+        }
+    }
 
     Ok(finish(out, "not run"))
 }
