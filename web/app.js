@@ -3,7 +3,7 @@ const worker = new Worker("worker.js");
 const $ = (id) => document.getElementById(id);
 const EXAMPLE = "https://raw.githubusercontent.com/opengeospatial/geoparquet/main/examples/example.parquet";
 const CLASSES = [
-  ["core", "Core", "Every GeoParquet 2.0 file"],
+  ["core", "Core", "Every GeoParquet file"],
   ["covering", "Bounding Box Covering", "Files that declare a bbox covering"],
   ["distribution", "Cloud-Optimized Distribution", "Optional profile for direct cloud access"],
 ];
@@ -20,9 +20,9 @@ function render(report, label) {
   const verdict = (n) => n.fail ? ["fail", "Not conformant"] : n.pass ? ["pass", "Conformant"] : ["skip", "Not claimed"];
   let html = `<div class="report">`;
   html += `<div class="report-head"><p class="name">${label ? `<span>${esc(label)} · </span>` : ""}${esc(report.file)}</p>`;
-  const meta = [report.rules || `GeoParquet ${report.version || "?"}`];
+  const meta = [`GeoParquet ${report.version || "?"}`];
   if (report.traffic) meta.push(`${(report.traffic[0] / 1e6).toFixed(1)} MB read in ${report.traffic[1]} range request${report.traffic[1] === 1 ? "" : "s"}`);
-  if (report.sampled) meta.push("first row groups only: data tests are a sample, not a conformance pass");
+  if (report.sampled) meta.push("first row groups only: the data tests are a sample");
   if (meta.length) html += `<p class="meta">${esc(meta.join(" · "))}</p>`;
   html += `</div><div class="summary">`;
   for (const [k, title, sub] of CLASSES) {
@@ -32,7 +32,7 @@ function render(report, label) {
   html += `</div><div class="detail">`;
   for (const [k, title] of CLASSES) {
     const rows = report.outcomes.filter((o) => o.id.split("/")[2] === k);
-    html += `<h3>${title} <small>/conf/${k}</small></h3><div class="tablewrap"><table class="tests"><tbody>`;
+    html += `<h3>${title}</h3><div class="tablewrap"><table class="tests"><tbody>`;
     for (const o of rows) {
       html += `<tr class="${o.status}"><td class="state"><span class="pill ${o.status}">${o.status}</span></td><td class="id">${esc(o.id.split("/").slice(3).join("/"))}</td><td class="msg">${fmtMsg(o.message) || "<span style='opacity:.5'>—</span>"}</td></tr>`;
     }
@@ -40,7 +40,7 @@ function render(report, label) {
   }
   html += `</div>`;
   if (report.advice && report.advice.length) {
-    html += `<h3>Distribution best practices <small>advice, not conformance</small></h3><div class="tablewrap"><table class="tests"><tbody>`;
+    html += `<h3>Distribution best practices <small>advice from <a href="https://github.com/opengeospatial/geoparquet/blob/main/format-specs/distributing-geoparquet.md">Distributing GeoParquet</a></small></h3><div class="tablewrap"><table class="tests"><tbody>`;
     const level = { good: "pass", consider: "skip", poor: "fail" };
     for (const a of report.advice) {
       const s = level[a.level] || "skip";

@@ -16,7 +16,7 @@ use source::{Local, RemoteOptions, open_remote};
 #[command(
     name = "geoparquet-validator",
     version,
-    about = "Validate GeoParquet files: the OGC 2.0 abstract tests, or the 1.0 / 1.1 community rules"
+    about = "Validate GeoParquet 1.0, 1.1 and 2.0 files; the 2.0 checks align with the OGC draft"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -44,7 +44,7 @@ impl Class {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Run the abstract tests on a file, a directory, or an object-store URL or prefix
+    /// Check a file, a directory, or an object-store URL or prefix
     /// (s3://, gs://, az://, https://; a prefix ends with '/')
     Check {
         target: String,

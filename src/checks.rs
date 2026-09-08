@@ -107,9 +107,9 @@ const GEOARROW: [&str; 6] = [
     "multipolygon",
 ];
 
-/// Which GeoParquet specification the file claims; it decides which rules apply. The OGC
-/// abstract tests are written for 2.0; 1.0 and 1.1 files are checked against their own
-/// community specification with the same test identifiers.
+/// Which GeoParquet specification the file claims; it decides which rules apply. The tests are
+/// written for 2.0; 1.0 and 1.1 files are checked against their own version of the
+/// specification, with the same test identifiers.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Spec {
     V1_0,
@@ -131,13 +131,9 @@ impl Spec {
     }
     fn rules(self) -> &'static str {
         match self {
-            Spec::V2_0 => "GeoParquet 2.0.0: the abstract tests of the OGC draft",
-            Spec::V1_1 => {
-                "GeoParquet 1.1.0 community specification (the OGC conformance classes are defined for 2.0)"
-            }
-            Spec::V1_0 => {
-                "GeoParquet 1.0.0 community specification (the OGC conformance classes are defined for 2.0)"
-            }
+            Spec::V2_0 => "the GeoParquet 2.0.0 specification; the checks align with the OGC draft",
+            Spec::V1_1 => "the GeoParquet 1.1.0 specification",
+            Spec::V1_0 => "the GeoParquet 1.0.0 specification",
         }
     }
     fn versions(self) -> &'static [&'static str] {

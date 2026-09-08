@@ -23,7 +23,7 @@ pub fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Which OGC abstract tests should catch a corpus `expected_failure`; empty = no OGC requirement.
+/// Which tests should catch a corpus `expected_failure`; empty = the spec has no requirement.
 fn expected_tests(kind: &str) -> &'static [&'static str] {
     match kind {
         "bbox_mismatch" => &[checks::BBOX_EXTENT],
@@ -126,7 +126,7 @@ pub fn run(dir: &Path, schemas: &Schemas, verbose: bool) -> Result<()> {
             println!("  MISS  {name}: manifest entry has no expected_failure");
         } else if expected.is_empty() {
             no_req += 1;
-            println!("  n/a   {name} [{kind}]: no OGC requirement; failed {fails:?}");
+            println!("  n/a   {name} [{kind}]: no spec requirement; failed {fails:?}");
         } else if !hit.is_empty() {
             detected += 1;
             let msg = r.get(hit[0]).map(|o| o.message.as_str()).unwrap_or("");
@@ -143,7 +143,7 @@ pub fn run(dir: &Path, schemas: &Schemas, verbose: bool) -> Result<()> {
             println!("  MISS  {name} [{kind}]: expected {expected:?}, failed {fails:?}");
         }
     }
-    println!("  {detected} detected, {missed} missed, {no_req} without an OGC requirement");
+    println!("  {detected} detected, {missed} missed, {no_req} without a spec requirement");
     if bad_good > 0 || missed > 0 {
         anyhow::bail!("{bad_good} valid file(s) failed, {missed} defect(s) missed");
     }

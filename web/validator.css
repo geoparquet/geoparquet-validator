@@ -38,10 +38,10 @@
 
 /* header */
 .gpv .masthead { display: grid; gap: .75rem; margin-bottom: 1.75rem; }
-.gpv .eyebrow { font: 500 .75rem/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 .gpv h1 { font: 600 clamp(1.9rem, 1.4rem + 1.6vw, 2.6rem)/1.05 var(--cond); letter-spacing: -.01em; margin: 0; text-wrap: balance; text-align: left; }
 .gpv .lede { margin: 0; max-width: 62ch; color: var(--muted); }
 .gpv .lede strong { color: var(--ink); font-weight: 500; }
+.gpv .specline { margin: -.25rem 0 0; max-width: 62ch; font-size: .88rem; color: var(--muted); }
 /* the row-group band: blocks of unequal width, like the row groups of a Parquet file */
 .gpv .rowgroups { display: flex; gap: 3px; height: 6px; margin-top: .25rem; }
 .gpv .rowgroups span { display: block; background: var(--accent); opacity: .85; border-radius: 1px; }
@@ -95,8 +95,8 @@
 .gpv .verdict.fail { color: var(--fail); background: var(--fail-bg); }
 .gpv .verdict.skip { color: var(--skip); background: var(--skip-bg); }
 
-.gpv .detail h3 { font: 600 1rem/1.2 var(--cond); margin: 1rem 0 .4rem; display: flex; align-items: baseline; gap: .6rem; }
-.gpv .detail h3 small { font: .85rem var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
+.gpv .report h3 { font: 600 1rem/1.2 var(--cond); margin: 1rem 0 .4rem; display: flex; align-items: baseline; gap: .6rem; }
+.gpv .report h3 small { font: .85rem var(--mono); color: var(--muted); font-variant-numeric: tabular-nums; }
 .gpv .tests { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--card); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
 .gpv .tests td { padding: .55rem .75rem; border-top: 1px solid var(--line); vertical-align: top; font-size: .9rem; }
 .gpv .tests tr:first-child td { border-top: 0; }
