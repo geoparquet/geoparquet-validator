@@ -62,9 +62,13 @@ A report has three conformance classes, each `conformant`, `NOT CONFORMANT` or `
 | Bounding Box Covering | files that declare a `covering` | 6 |
 | Cloud-Optimized Distribution | an optional profile for direct cloud access | 2, plus the advice |
 
-Each file is checked against the rules of the version it declares, under the same test identifiers;
-the report says which rules were applied. Details of every check, the 1.x rules, the
-spatial-ordering metric and the browser build are in [docs/design.md](docs/design.md).
+Each file is checked against the rules of the version it declares, under the same test identifiers,
+and the report says which rules were applied. For 1.0 and 1.1 that means their own JSON Schema, WKB
+plus the 1.1 GeoArrow encodings (checked structurally), planar and spherical edges only, and the bbox
+covering column's statistics as the source of row-group bounds. Spatial order is judged by pruning:
+20 random query windows of 10 % side, skip rate compared with an ideal tiling of the same number of
+row groups, pass at 70 % of it, no verdict below five row groups. CRS equality is by authority code;
+a PROJJSON without an identifier is reported as "cannot compare", not passed or failed.
 
 Every surface returns the same report, described by [`schemas/report.schema.json`](schemas/report.schema.json):
 the 28 outcomes (`pass`, `fail`, `skip`, each with a message), the version the file declares, the rules
@@ -127,8 +131,7 @@ Against the official [test corpus](https://github.com/geoparquet/geoparquet-test
 pass, 24 defective files caught), 198 generated fixtures with a verdict manifest, files from seven
 writers (DuckDB, SedonaDB, GDAL, GeoPandas, geoarrow, pyarrow), the public example files of the
 specification, GDAL, Apache Sedona and geoarrow-data, and real files on S3 including Overture Maps.
-All of it is in [docs/testing.md](docs/testing.md); what it surfaced for the specification is in
-[docs/findings.md](docs/findings.md).
+All of it is in [docs/testing.md](docs/testing.md).
 
 ## Support
 
@@ -159,14 +162,15 @@ disagreement with them is a bug in one or the other and belongs in an issue ther
 `src/` the crate (features `cli`, `remote`, `wasm`, `python`, `capi`) · `web/` the browser app ·
 `python/` the Python package · `npm/` the npm package · `include/`, `examples/` the C interface ·
 `fixtures/` the generators and the verdict manifest · `corpus/` the official test corpus, as a
-submodule · `packaging/` Homebrew, winget and conda files · `docs/` the long version of this README.
+submodule · `packaging/` Homebrew, winget and conda files · `docs/` how it is tested.
 
 ## Acknowledgements
 
 Built for the [OGC GeoParquet Standards Working Group](https://www.ogc.org/) as the executable
 counterpart of the 2.0 abstract tests, alongside the community validator
-[geoparquet-io](https://github.com/geoparquet/geoparquet-io), whose spatial-ordering metric this
-tool reuses. The test corpus is maintained in
+[geoparquet-io](https://github.com/geoparquet/geoparquet-io); the spatial-ordering metric is the
+pruning-based one proposed in [geoparquet-io#774](https://github.com/geoparquet/geoparquet-io/pull/774),
+with the same parameters. The test corpus is maintained in
 [geoparquet/geoparquet-testing](https://github.com/geoparquet/geoparquet-testing).
 
 ## License

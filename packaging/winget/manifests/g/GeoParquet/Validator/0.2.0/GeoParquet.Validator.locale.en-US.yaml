@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.9.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
 PackageIdentifier: GeoParquet.Validator
 PackageVersion: 0.2.0
 PackageLocale: en-US
@@ -20,4 +20,4 @@ Tags:
   - ogc
 ReleaseNotesUrl: https://github.com/geoparquet/geoparquet-validator/releases/tag/v0.2.0
 ManifestType: defaultLocale
-ManifestVersion: 1.9.0
+ManifestVersion: 1.12.0

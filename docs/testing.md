@@ -1,6 +1,6 @@
 # How the validator is tested
 
-Every claim in the README traces back to one of the runs below. Dates are when the run was made; the
+Every claim in the README traces back to one of the runs below; the findings the runs produced for the specification are recorded in the OGC document's issue list (docs/ogc/spec-issues.md in opengeospatial/geoparquet#304). Dates are when the run was made; the
 numbers are reproduced by CI or by the scripts named.
 
 ## Test suite
