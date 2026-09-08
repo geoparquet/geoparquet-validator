@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      # Pinned: rust-toolchain.toml names the same version; bump both together.
+      - uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format and lint
+        run: |
+          cargo fmt --check
+          cargo clippy --release --all-targets -- -D warnings
+
+      - name: Build and unit tests
+        run: |
+          cargo build --release
+          cargo test --release
+
+      - name: Run the abstract tests over the corpus
+        run: ./target/release/geoparquet-validator corpus corpus
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Generate the fixture sets
+        working-directory: corpus/scripts
+        run: |
+          uv python install 3.12
+          uv sync
+          uv run python ../../fixtures/generate.py
+
+      - name: Verify fixture verdicts against the manifest
+        run: ./target/release/geoparquet-validator verify fixtures/out --manifest fixtures/expected.json

@@ -1,0 +1,52 @@
+name: Deploy the browser validator
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.98.0
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-bindgen (the version in Cargo.lock) and binaryen
+        run: |
+          sudo apt-get -qq install -y binaryen clang >/dev/null
+          VER=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | grep version | sed -E 's/.*"([^"]+)".*/\1/')
+          cargo install --locked wasm-bindgen-cli --version "$VER"
+
+      - name: Build the browser validator
+        run: sh web/build.sh
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
