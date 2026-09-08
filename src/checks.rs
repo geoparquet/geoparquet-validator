@@ -1640,7 +1640,7 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
                 format!(
                     "the rows are well ordered: a query window can skip {:.0} % of the row groups, {:.0} % of what an ideal tiling of {} row groups would allow",
                     m.file_skip * 100.0,
-                    m.ratio * 100.0,
+                    (m.ratio * 100.0).min(100.0),
                     m.row_groups
                 ),
             ),

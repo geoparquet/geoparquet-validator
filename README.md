@@ -149,6 +149,16 @@ bounding-box column failing only `bbox-paths`, `encoding` missing or non-string 
 data test, tool errors distinguished from conformance failures (exit 2), `--class` validated. Unit
 tests cover the decoder and the metric (`cargo test`).
 
+## Distribution best practices, as advice
+
+Alongside the conformance verdicts, every report ends with advice on the practices in
+`format-specs/distributing-geoparquet.md`, measured on the file and never counted as conformance:
+how well the rows are spatially ordered (the skip rate a query window achieves, against an ideal
+tiling of the same number of row groups, with the sort command to fix it), the row group sizes
+against the 150 000-row ceiling, the compression codec, whether a bounding box covering column is
+present, and whether the file is large enough to be worth partitioning. Each item is `good`,
+`consider` or `poor`, in the text output and in the JSON under `advice`.
+
 ## GeoParquet 1.0 and 1.1 files
 
 The abstract tests are written for 2.0, but most files in the wild are still 1.0 or 1.1, so the
