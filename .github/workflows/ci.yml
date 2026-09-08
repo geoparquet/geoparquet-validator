@@ -28,6 +28,7 @@ jobs:
       - name: Build and unit tests
         run: |
           cargo build --release
+          cargo build --release --lib --features capi,python
           cargo test --release
 
       - name: Run the abstract tests over the corpus

@@ -21,11 +21,13 @@ geoparquet-validator check https://host/path/file.parquet --max-rows 100000
 | --- | --- |
 | Binary | Download the archive for your platform from the [releases page](https://github.com/geoparquet/geoparquet-validator/releases) and put `geoparquet-validator` on your PATH. Linux and macOS on x86-64 and arm64, Windows on x86-64. |
 | Rust | `cargo install geoparquet-validator` |
-| Python | `pip install geoparquet-validator` (the wheel ships the same binary, no extension module) |
+| Python | `pip install geoparquet-validator`: `import geoparquet_validator` and the same `geoparquet-validator` command |
+| Node, bundlers | `npm install geoparquet-validator` (WebAssembly; the release also carries the package tarball) |
+| C, and anything with a foreign-function interface | `libgeoparquet_validator` and `include/geoparquet_validator.h`, in every release archive |
 | From source | `git clone --recurse-submodules https://github.com/geoparquet/geoparquet-validator && cd geoparquet-validator && cargo build --release` |
 
-Tagging a version (`git tag v0.2.0 && git push origin v0.2.0`) builds the binaries and wheels,
-creates the release and publishes to crates.io. The publish uses crates.io trusted publishing
+Tagging a version (`git tag v0.2.0 && git push origin v0.2.0`) builds the binaries with the C
+library, the wheels and the npm package, creates the release and publishes to crates.io and PyPI. The publish uses crates.io trusted publishing
 through GitHub OIDC, so the repository holds no registry token; it is configured on the crate's
 crates.io settings page against this repository and `release.yml`. conda-forge can package the
 released binary.
@@ -148,6 +150,63 @@ bounding-box column failing only `bbox-paths`, `encoding` missing or non-string 
 `geometry-column-type`, dictionary-hinted binary columns read as WKB, unread columns reported on every
 data test, tool errors distinguished from conformance failures (exit 2), `--class` validated. Unit
 tests cover the decoder and the metric (`cargo test`).
+
+## Use it in your own code
+
+Every surface returns the same report, described by [`schemas/report.schema.json`](schemas/report.schema.json):
+the 28 outcomes (`pass`, `fail`, `skip`, each with a message), the version the file declares, the rules
+applied, whether the data tests were sampled, and the distribution advice. `report_version` is bumped
+when a field changes meaning; fields may be added without a bump.
+
+**Command line, from any language**
+
+```sh
+geoparquet-validator check file.parquet --json            # the report on stdout
+geoparquet-validator check s3://bucket/prefix/ --json --max-rows 100000
+# exit codes: 0 conformant, 1 a test failed, 2 the tool could not run (unreadable file, network)
+```
+
+**Python** (`pip install geoparquet-validator`)
+
+```python
+import geoparquet_validator as gpv
+
+report = gpv.check("file.parquet")                 # or an s3://, gs://, az://, https:// URL
+report = gpv.check_bytes("upload.parquet", data)   # bytes already in memory
+gpv.conformant(report, "core")                     # True when no Core test failed
+gpv.failed(report)                                 # ["/conf/core/bbox-extent", ...]
+report["advice"]                                   # the distribution best practices, measured
+```
+
+**Rust** (`cargo add geoparquet-validator`, docs on [docs.rs](https://docs.rs/geoparquet-validator))
+
+```rust
+let report = geoparquet_validator::validate("file.parquet", None)?;
+let failed: Vec<_> = report.outcomes.iter().filter(|o| o.status == Status::Fail).collect();
+// checks::run(&source, &schemas, &options) takes any `Source`: Local, InMemory, or a range reader
+```
+
+**Node and browsers** (`npm install geoparquet-validator`)
+
+```js
+import { check, conformant, failed } from "geoparquet-validator";
+const report = await check("file.parquet");        // Node; an https:// URL is downloaded whole
+```
+
+In a browser, import `geoparquet-validator/bundler` and call `check_bytes(name, uint8array)`; the
+page at https://geoparquet.org/geoparquet-validator/ is exactly that, plus a worker that gives the
+range reader synchronous fetch callbacks so URLs are read in pieces.
+
+**C, and everything with a foreign-function interface**
+
+```c
+#include "geoparquet_validator.h"
+char *report = gpv_check("file.parquet", 0);        /* JSON, or {"error": "..."} */
+gpv_free(report);
+```
+
+`examples/check.c` is a complete program; build the library with `cargo build --release --features capi`.
+Go through cgo, Java, R, .NET and Julia can call the same four functions.
 
 ## Distribution best practices, as advice
 

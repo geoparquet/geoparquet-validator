@@ -1,13 +1,13 @@
 [package]
 name = "geoparquet-validator"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/geoparquet/geoparquet-validator"
 keywords = ["geoparquet", "parquet", "geospatial", "validation", "ogc"]
 categories = ["command-line-utilities", "science::geo"]
-exclude = ["corpus/*", "fixtures/*", "web/pkg/*", ".github/*"]
+exclude = ["corpus/*", "fixtures/*", "web/pkg/*", "npm/*", ".github/*"]
 description = "Validate GeoParquet files against the OGC abstract tests and the 1.0/1.1 community specifications"
 
 [lib]
@@ -27,6 +27,10 @@ cli = ["dep:clap", "remote"]
 remote = ["dep:object_store", "dep:tokio", "dep:futures", "dep:url"]
 # the browser build: `cargo build --lib --target wasm32-unknown-unknown --no-default-features --features wasm`
 wasm = ["dep:wasm-bindgen", "dep:js-sys"]
+# the Python extension module (built by maturin, see pyproject.toml); includes the command line
+python = ["dep:pyo3", "cli"]
+# the C interface (include/geoparquet_validator.h)
+capi = ["remote"]
 
 [dependencies]
 anyhow = "1.0.104"
@@ -37,6 +41,7 @@ futures = { version = "0.3.34", optional = true }
 jsonschema = { version = "0.53.0", default-features = false }
 object_store = { version = "0.14.1", features = ["aws", "gcp", "azure", "http"], optional = true }
 parquet = "59.3.0"
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 tokio = { version = "1.53.1", features = ["rt-multi-thread"], optional = true }

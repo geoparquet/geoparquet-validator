@@ -10,6 +10,7 @@ license = { text = "Apache-2.0" }
 requires-python = ">=3.9"
 classifiers = [
   "Programming Language :: Rust",
+  "Programming Language :: Python :: 3",
   "Topic :: Scientific/Engineering :: GIS",
 ]
 dynamic = ["version"]
@@ -18,8 +19,13 @@ dynamic = ["version"]
 Homepage = "https://geoparquet.org/geoparquet-validator/"
 Repository = "https://github.com/geoparquet/geoparquet-validator"
 
-# The wheel ships the command-line binary, not an extension module, so `pip install
-# geoparquet-validator` gives you `geoparquet-validator` on the PATH.
+# The same wheel gives `import geoparquet_validator` and the `geoparquet-validator` command.
+[project.scripts]
+geoparquet-validator = "geoparquet_validator:main"
+
 [tool.maturin]
-bindings = "bin"
+bindings = "pyo3"
+features = ["python"]
+module-name = "geoparquet_validator._native"
+python-source = "python"
 strip = true

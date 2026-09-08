@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://geoparquet.org/geoparquet-validator/report.schema.json",
+  "title": "geoparquet-validator report",
+  "description": "What `geoparquet-validator check --json`, the library functions and the browser build return for one file. report_version is bumped when a field changes meaning or goes away; fields may be added without a bump.",
+  "type": "object",
+  "required": ["report_version", "tool", "file", "version", "rules", "sampled", "outcomes", "advice"],
+  "properties": {
+    "report_version": { "const": 1 },
+    "tool": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": { "name": { "type": "string" }, "version": { "type": "string" } }
+    },
+    "file": { "type": "string", "description": "the path or URL that was checked" },
+    "version": { "type": "string", "description": "the GeoParquet version the file declares, or \"unknown\"" },
+    "rules": { "type": "string", "description": "which rules were applied, in words" },
+    "sampled": { "type": "boolean", "description": "true when only the first row groups were read; the data tests are then a sample, not a conformance pass" },
+    "traffic": {
+      "description": "[bytes fetched, range requests] for a remote source, null for a local file",
+      "type": ["array", "null"],
+      "prefixItems": [{ "type": "integer", "minimum": 0 }, { "type": "integer", "minimum": 0 }],
+      "minItems": 2, "maxItems": 2
+    },
+    "outcomes": {
+      "type": "array",
+      "description": "one entry per abstract test, always all 28, in document order",
+      "items": {
+        "type": "object",
+        "required": ["id", "status", "message"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^/conf/(core|covering|distribution)/[a-z0-9-]+$" },
+          "status": { "enum": ["pass", "fail", "skip"] },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "advice": {
+      "type": "array",
+      "description": "the distribution best practices measured on the file; never a conformance verdict",
+      "items": {
+        "type": "object",
+        "required": ["topic", "level", "message"],
+        "properties": {
+          "topic": { "type": "string" },
+          "level": { "enum": ["good", "consider", "poor"] },
+          "message": { "type": "string" }
+        }
+      }
+    }
+  }
+}

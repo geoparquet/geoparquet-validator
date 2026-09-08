@@ -213,7 +213,29 @@ pub struct Report {
     pub rules: String,
     /// how the distribution best practices look on this file (never a conformance verdict)
     pub advice: Vec<Advice>,
+    /// the shape of this document; bumped when a field changes meaning or goes away
+    pub report_version: u32,
+    pub tool: Tool,
 }
+
+/// The program that wrote a report.
+#[derive(Serialize, Clone, Copy)]
+pub struct Tool {
+    pub name: &'static str,
+    pub version: &'static str,
+}
+
+impl Tool {
+    pub const fn current() -> Tool {
+        Tool {
+            name: "geoparquet-validator",
+            version: env!("CARGO_PKG_VERSION"),
+        }
+    }
+}
+
+/// The shape of the JSON report; see `schemas/report.schema.json`.
+pub const REPORT_VERSION: u32 = 1;
 
 impl Report {
     pub fn failed(&self, class: &str) -> Vec<&'static str> {
@@ -796,6 +818,8 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
             version: version.borrow().clone(),
             rules: rules.borrow().clone(),
             advice: advice.borrow_mut().drain(..).collect(),
+            report_version: REPORT_VERSION,
+            tool: Tool::current(),
         }
     };
 
