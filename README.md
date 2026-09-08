@@ -6,8 +6,7 @@ abstract tests of the OGC GeoParquet 2.0 draft
 a directory, or an object-store URL, and checks GeoParquet 1.0 and 1.1 files against their own
 community specification. No DuckDB, GDAL or PROJ.
 
-**Try it in your browser: https://geoparquet.org/geoparquet-validator/** (validator.geoparquet.org
-once the DNS record is in place). Files stay on your machine; a URL is read with range requests.
+**Try it in your browser: https://validator.geoparquet.org/**. Files stay on your machine; a URL is read with range requests.
 
 ```
 geoparquet-validator check file.parquet
@@ -194,7 +193,7 @@ const report = await check("file.parquet");        // Node; an https:// URL is d
 ```
 
 In a browser, import `geoparquet-validator/bundler` and call `check_bytes(name, uint8array)`; the
-page at https://geoparquet.org/geoparquet-validator/ is exactly that, plus a worker that gives the
+page at https://validator.geoparquet.org/ is exactly that, plus a worker that gives the
 range reader synchronous fetch callbacks so URLs are read in pieces.
 
 **C, and everything with a foreign-function interface**
@@ -236,7 +235,7 @@ from the covering statistics over 256 row groups.
 the machine) or paste a URL (read with range requests from a Web Worker, so the host must allow
 cross-origin reads; public S3 buckets with CORS, GitHub raw and source.coop do; Overture's bucket
 does). URL checks default to the first 100 000 rows, which is a sample, not a conformance pass.
-Published at https://geoparquet.org/geoparquet-validator/, moving to validator.geoparquet.org. Build with `sh web/build.sh` (needs the `wasm32-unknown-unknown`
+Published at https://validator.geoparquet.org/. Build with `sh web/build.sh` (needs the `wasm32-unknown-unknown`
 target, `wasm-bindgen-cli` matching `Cargo.lock`, clang for zstd, optionally `wasm-opt`); CI builds
 it as the `web-checker` artifact. Only `gpq`'s 1.0 page existed before; there was no 2.0 validator
 one could point at a URL.

@@ -4,7 +4,7 @@
   "description": "Validate GeoParquet files in the browser or Node: the OGC GeoParquet 2.0 abstract tests, and the 1.0/1.1 community rules",
   "license": "Apache-2.0",
   "repository": { "type": "git", "url": "https://github.com/geoparquet/geoparquet-validator" },
-  "homepage": "https://geoparquet.org/geoparquet-validator/",
+  "homepage": "https://validator.geoparquet.org/",
   "keywords": ["geoparquet", "parquet", "geospatial", "validation", "ogc", "wasm"],
   "type": "module",
   "main": "./index.cjs",

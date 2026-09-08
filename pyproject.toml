@@ -16,7 +16,7 @@ classifiers = [
 dynamic = ["version"]
 
 [project.urls]
-Homepage = "https://geoparquet.org/geoparquet-validator/"
+Homepage = "https://validator.geoparquet.org/"
 Repository = "https://github.com/geoparquet/geoparquet-validator"
 
 # The same wheel gives `import geoparquet_validator` and the `geoparquet-validator` command.

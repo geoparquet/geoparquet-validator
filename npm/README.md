@@ -2,7 +2,7 @@
 
 The GeoParquet validator compiled to WebAssembly: the abstract tests of the OGC GeoParquet 2.0
 draft, and the 1.0 / 1.1 community rules. Same code as the command-line tool and the page at
-https://geoparquet.org/geoparquet-validator/.
+https://validator.geoparquet.org/.
 
 ```js
 import { check, conformant, failed } from "geoparquet-validator";
