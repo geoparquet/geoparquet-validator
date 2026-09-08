@@ -4,7 +4,7 @@ Files other package managers consume; the release workflow builds the archives t
 
 | Directory | Channel | How it reaches users |
 | --- | --- | --- |
-| `homebrew/` | Homebrew tap `geoparquet/homebrew-tap` | copy the formula to the tap's `Formula/` on each release; `brew install geoparquet/tap/geoparquet-validator` |
+| `homebrew/` | Homebrew tap `geoparquet/homebrew-tap` | the tap follows the releases with its own daily workflow; this copy mirrors it. `brew install geoparquet/tap/geoparquet-validator` |
 | `winget/` | Windows Package Manager | submit the manifests to microsoft/winget-pkgs on each release; `winget install GeoParquet.Validator` |
 | `conda/` | conda-forge | the recipe submitted to conda-forge/staged-recipes; afterwards the feedstock updates itself from crates.io |
 

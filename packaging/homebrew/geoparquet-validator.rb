@@ -2,9 +2,8 @@
 # repository as Formula/geoparquet-validator.rb; this copy is the source of truth and is updated
 # with every release:  brew install geoparquet/tap/geoparquet-validator
 class GeoparquetValidator < Formula
-  desc "Validate GeoParquet files against the OGC abstract tests and the 1.0/1.1 community specifications"
+  desc "Validate GeoParquet files against the spec and the OGC 2.0 abstract tests"
   homepage "https://validator.geoparquet.org/"
-  version "0.2.0"
   license "Apache-2.0"
 
   on_macos do

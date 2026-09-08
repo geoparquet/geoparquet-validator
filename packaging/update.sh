@@ -8,7 +8,7 @@ cd "$(dirname "$0")"
 BASE="https://github.com/geoparquet/geoparquet-validator/releases/download/$TAG/geoparquet-validator-$TAG"
 sum() { curl -sL "$1" | shasum -a 256 | cut -d' ' -f1; }
 F=homebrew/geoparquet-validator.rb
-sed -i.bak -E "s/version \"[^\"]+\"/version \"$VER\"/; s#/download/v[0-9.]+/geoparquet-validator-v[0-9.]+-#/download/$TAG/geoparquet-validator-$TAG-#g" "$F"
+sed -i.bak -E "s#/download/v[0-9.]+/geoparquet-validator-v[0-9.]+-#/download/$TAG/geoparquet-validator-$TAG-#g" "$F"
 for t in aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
   S=$(sum "$BASE-$t.tar.gz")
   # the sha256 line that follows this target's url line

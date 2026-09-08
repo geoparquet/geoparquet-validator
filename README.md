@@ -30,7 +30,7 @@ buildings.parquet
 
 | | |
 | --- | --- |
-| macOS, Linux | download the archive for your platform from the [releases](https://github.com/geoparquet/geoparquet-validator/releases) and put `geoparquet-validator` on your PATH (Homebrew tap coming: [#5](https://github.com/geoparquet/geoparquet-validator/issues/5)) |
+| macOS, Linux | `brew install geoparquet/tap/geoparquet-validator`, or download the archive for your platform from the [releases](https://github.com/geoparquet/geoparquet-validator/releases) and put `geoparquet-validator` on your PATH |
 | Windows | the `.zip` from the [releases](https://github.com/geoparquet/geoparquet-validator/releases); `winget` coming ([#6](https://github.com/geoparquet/geoparquet-validator/issues/6)) |
 | Python | `pip install geoparquet-validator` gives the command and `import geoparquet_validator` |
 | Rust | `cargo install geoparquet-validator` |
