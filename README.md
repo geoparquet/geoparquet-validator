@@ -24,9 +24,11 @@ geoparquet-validator check https://host/path/file.parquet --max-rows 100000
 | Python | `pip install geoparquet-validator` (the wheel ships the same binary, no extension module) |
 | From source | `git clone --recurse-submodules https://github.com/geoparquet/geoparquet-validator && cd geoparquet-validator && cargo build --release` |
 
-Tagging a version (`git tag v0.1.0 && git push origin v0.1.0`) builds the binaries and wheels and
-creates the release. The crates.io publish runs when a `CARGO_REGISTRY_TOKEN` secret exists on the
-repository, and conda-forge can package the released binary once the first tag is out.
+Tagging a version (`git tag v0.2.0 && git push origin v0.2.0`) builds the binaries and wheels,
+creates the release and publishes to crates.io. The publish uses crates.io trusted publishing
+through GitHub OIDC, so the repository holds no registry token; it is configured on the crate's
+crates.io settings page against this repository and `release.yml`. conda-forge can package the
+released binary.
 
 The repository holds the crate (`src/`), the browser app (`web/`), the fixture generators and their
 verdict manifest (`fixtures/`), and the official test corpus as a submodule (`corpus/`, from

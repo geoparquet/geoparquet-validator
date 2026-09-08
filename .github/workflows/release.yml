@@ -92,17 +92,20 @@ jobs:
   crate:
     name: crates.io
     runs-on: ubuntu-latest
-    # Needs a CARGO_REGISTRY_TOKEN secret on the repository; skipped until one exists.
-    if: github.event_name == 'push'
+    permissions:
+      # Trusted publishing: crates.io is configured to trust this repository and workflow, and
+      # mints a short-lived token per run, so no CARGO_REGISTRY_TOKEN secret is needed. Configure
+      # it at https://crates.io/crates/geoparquet-validator/settings under Trusted Publishing.
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v5
+
       - uses: dtolnay/rust-toolchain@1.98.0
-      - name: Publish
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - run: cargo publish
         env:
-          TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: |
-          if [ -z "$TOKEN" ]; then
-            echo "No CARGO_REGISTRY_TOKEN secret; skipping the crates.io publish."
-            exit 0
-          fi
-          cargo publish --token "$TOKEN"
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
