@@ -1,7 +1,7 @@
 # conda-forge recipe (rattler-build v1 format). Submitted to conda-forge/staged-recipes as
 # recipes/geoparquet-validator/recipe.yaml; the feedstock it creates then updates itself from
-# crates.io. Builds the command from the published crate, so the artefact is what `cargo install`
-# would produce, compiled with conda-forge's toolchain.
+# crates.io. Builds the command from the release tarball with `cargo install --locked`, so the artefact
+# is what `cargo install` would produce, compiled with conda-forge's toolchain.
 context:
   version: "0.2.0"
 
@@ -10,9 +10,8 @@ package:
   version: ${{ version }}
 
 source:
-  url: https://crates.io/api/v1/crates/geoparquet-validator/${{ version }}/download
-  file_name: geoparquet-validator-${{ version }}.tar.gz
-  sha256: 635d8fec62b0add1cf54e63d7bd360bafe106b1693ca4554a65a2325bf89dd27
+  url: https://github.com/geoparquet/geoparquet-validator/archive/refs/tags/v${{ version }}.tar.gz
+  sha256: a5eaa695d4d3b6430fca45a820de6b34046780b1751bff790682371e78728e94
 
 build:
   number: 0
