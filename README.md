@@ -1,10 +1,11 @@
 # geoparquet-validator
 
-Validate GeoParquet files. One command, also a library, that runs the abstract tests of the
-[OGC GeoParquet 2.0 draft](https://github.com/opengeospatial/geoparquet/pull/304) on a file, a
-directory or an object-store URL, checks GeoParquet 1.0 and 1.1 files against their own community
-specification, and reports the [distribution best practices](https://github.com/opengeospatial/geoparquet/blob/main/format-specs/distributing-geoparquet.md)
-as advice. Written in Rust; no DuckDB, GDAL or PROJ.
+Validate GeoParquet files. One command, also a library, that checks GeoParquet 1.0, 1.1 and 2.0
+files against the [specification](https://github.com/opengeospatial/geoparquet) on a file, a
+directory or an object-store URL, and reports the [distribution best practices](https://github.com/opengeospatial/geoparquet/blob/main/format-specs/distributing-geoparquet.md)
+as advice. The 2.0 checks align with the abstract tests of the
+[OGC GeoParquet 2.0 draft](https://github.com/opengeospatial/geoparquet/pull/304). Written in Rust;
+no DuckDB, GDAL or PROJ.
 
 **Try it in your browser: https://validator.geoparquet.org/.** Files stay on your machine; a URL is
 read with range requests, so a 500 MB file on S3 takes a few seconds.
@@ -12,7 +13,7 @@ read with range requests, so a 500 MB file on S3 takes a few seconds.
 ```
 $ geoparquet-validator check buildings.parquet
 buildings.parquet
-  version 1.1.0 · rules: GeoParquet 1.1.0 community specification (the OGC conformance classes are defined for 2.0)
+  version 1.1.0 · rules: the GeoParquet 1.1.0 specification
   PASS  /conf/core/geo-metadata
   ...
   => core: 13 pass, 0 fail, 7 skipped: conformant
@@ -61,8 +62,8 @@ A report has three conformance classes, each `conformant`, `NOT CONFORMANT` or `
 | Bounding Box Covering | files that declare a `covering` | 6 |
 | Cloud-Optimized Distribution | an optional profile for direct cloud access | 2, plus the advice |
 
-GeoParquet 1.0 and 1.1 files are checked against their own version's rules under the same test
-identifiers; the report says which rules were applied. Details of every check, the 1.x rules, the
+Each file is checked against the rules of the version it declares, under the same test identifiers;
+the report says which rules were applied. Details of every check, the 1.x rules, the
 spatial-ordering metric and the browser build are in [docs/design.md](docs/design.md).
 
 Every surface returns the same report, described by [`schemas/report.schema.json`](schemas/report.schema.json):
