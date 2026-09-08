@@ -1,0 +1,25 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "geoparquet-validator"
+description = "Validate GeoParquet files against the OGC abstract tests and the 1.0/1.1 community specifications"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.9"
+classifiers = [
+  "Programming Language :: Rust",
+  "Topic :: Scientific/Engineering :: GIS",
+]
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://geoparquet.org/geoparquet-validator/"
+Repository = "https://github.com/geoparquet/geoparquet-validator"
+
+# The wheel ships the command-line binary, not an extension module, so `pip install
+# geoparquet-validator` gives you `geoparquet-validator` on the PATH.
+[tool.maturin]
+bindings = "bin"
+strip = true

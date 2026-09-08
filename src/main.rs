@@ -12,7 +12,8 @@ use source::{Local, RemoteOptions, open_remote};
 #[derive(Parser)]
 #[command(
     name = "geoparquet-validator",
-    about = "GeoParquet 2.0 OGC abstract tests, in Rust, without DuckDB"
+    version,
+    about = "Validate GeoParquet files: the OGC 2.0 abstract tests, or the 1.0 / 1.1 community rules"
 )]
 struct Cli {
     #[command(subcommand)]

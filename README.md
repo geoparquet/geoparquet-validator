@@ -10,10 +10,23 @@ community specification. No DuckDB, GDAL or PROJ.
 once the DNS record is in place). Files stay on your machine; a URL is read with range requests.
 
 ```
-cargo install geoparquet-validator          # or download a binary from the releases page
 geoparquet-validator check file.parquet
 geoparquet-validator check s3://bucket/prefix/ --max-files 5 --max-rows 100000
+geoparquet-validator check https://host/path/file.parquet --max-rows 100000
 ```
+
+## Installing
+
+| | |
+| --- | --- |
+| Binary | Download the archive for your platform from the [releases page](https://github.com/geoparquet/geoparquet-validator/releases) and put `geoparquet-validator` on your PATH. Linux and macOS on x86-64 and arm64, Windows on x86-64. |
+| Rust | `cargo install geoparquet-validator` |
+| Python | `pip install geoparquet-validator` (the wheel ships the same binary, no extension module) |
+| From source | `git clone --recurse-submodules https://github.com/geoparquet/geoparquet-validator && cd geoparquet-validator && cargo build --release` |
+
+Tagging a version (`git tag v0.1.0 && git push origin v0.1.0`) builds the binaries and wheels and
+creates the release. The crates.io publish runs when a `CARGO_REGISTRY_TOKEN` secret exists on the
+repository, and conda-forge can package the released binary once the first tag is out.
 
 The repository holds the crate (`src/`), the browser app (`web/`), the fixture generators and their
 verdict manifest (`fixtures/`), and the official test corpus as a submodule (`corpus/`, from

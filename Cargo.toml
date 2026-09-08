@@ -7,6 +7,7 @@ license = "Apache-2.0"
 repository = "https://github.com/geoparquet/geoparquet-validator"
 keywords = ["geoparquet", "parquet", "geospatial", "validation", "ogc"]
 categories = ["command-line-utilities", "science::geo"]
+exclude = ["corpus/*", "fixtures/*", "web/pkg/*", ".github/*"]
 description = "Validate GeoParquet files against the OGC abstract tests and the 1.0/1.1 community specifications"
 
 [lib]
