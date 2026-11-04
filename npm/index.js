@@ -22,7 +22,7 @@ export async function check(target) {
   return checkBytes(target, new Uint8Array(await readFile(target)));
 }
 
-/** Ids of the failed tests, optionally within one class (core, covering, distribution). */
+/** Ids of the failed tests, optionally within one class (core, covering, distribution, native). */
 export function failed(report, conformanceClass) {
   return report.outcomes
     .filter((o) => o.status === "fail" && (!conformanceClass || o.id.startsWith(`/conf/${conformanceClass}/`)))

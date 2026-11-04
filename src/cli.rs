@@ -29,6 +29,8 @@ enum Class {
     Core,
     Covering,
     Distribution,
+    /// Native Parquet GEOMETRY/GEOGRAPHY columns without GeoParquet metadata
+    Native,
 }
 
 impl Class {
@@ -38,6 +40,7 @@ impl Class {
             Class::Core => class == "core",
             Class::Covering => class == "covering",
             Class::Distribution => class == "distribution",
+            Class::Native => class == "native",
         }
     }
 }
@@ -110,11 +113,39 @@ fn extras(r: &Report) -> String {
     s
 }
 
+/// The classes in print order: a file without `geo` metadata is judged by the native class, so
+/// it comes first.
+fn classes(r: &Report) -> [&'static str; 4] {
+    let native = r
+        .outcomes
+        .iter()
+        .any(|o| o.class() == "native" && o.status != Status::Skip);
+    if native {
+        ["native", "core", "covering", "distribution"]
+    } else {
+        ["core", "covering", "distribution", "native"]
+    }
+}
+
 fn print_text(r: &Report, class: Class) {
     println!("{}", r.file);
     println!("  version {} · rules: {}", r.version, r.rules);
-    for c in ["core", "covering", "distribution"] {
+    let native = classes(r)[0] == "native";
+    for c in classes(r) {
         if !class.includes(c) {
+            continue;
+        }
+        let (p, f, _) = counts(r, c);
+        if p + f == 0 && (c == "native" || (c == "core" && native)) {
+            // a class that does not apply to this kind of file: one line, not a skip per test
+            if c == "core" {
+                let why = r
+                    .get(checks::GEO_METADATA)
+                    .map_or("", |o| o.message.as_str());
+                println!("  => core: {why}");
+            } else if class == Class::Native {
+                println!("  => native: not applicable, the file has GeoParquet `geo` metadata");
+            }
             continue;
         }
         for o in r.outcomes.iter().filter(|o| o.class() == c) {
@@ -144,7 +175,7 @@ fn print_text(r: &Report, class: Class) {
         println!("{e}");
     }
     if class == Class::All && !r.advice.is_empty() {
-        println!("  distribution best practices (advice, not conformance):");
+        println!("  best practices (advice, not conformance):");
         for a in &r.advice {
             let tag = match a.level {
                 Level::Good => "ok  ",
@@ -158,7 +189,7 @@ fn print_text(r: &Report, class: Class) {
 
 fn print_summary(r: &Report) {
     let mut line = format!("{}  [{}]", r.file, r.version);
-    for c in ["core", "covering", "distribution"] {
+    for c in classes(r) {
         let (p, f, s) = counts(r, c);
         line.push_str(&format!("  {c} {p}/{f}/{s}"));
     }

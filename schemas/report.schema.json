@@ -24,12 +24,12 @@
     },
     "outcomes": {
       "type": "array",
-      "description": "one entry per abstract test, always all 28, in document order",
+      "description": "one entry per abstract test, always all 36, in document order (the native class last)",
       "items": {
         "type": "object",
         "required": ["id", "status", "message"],
         "properties": {
-          "id": { "type": "string", "pattern": "^/conf/(core|covering|distribution)/[a-z0-9-]+$" },
+          "id": { "type": "string", "pattern": "^/conf/(core|covering|distribution|native)/[a-z0-9-]+$" },
           "status": { "enum": ["pass", "fail", "skip"] },
           "message": { "type": "string" }
         }

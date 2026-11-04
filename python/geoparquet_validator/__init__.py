@@ -37,7 +37,7 @@ def check_bytes(name: str, data: bytes, max_rows: Optional[int] = None) -> dict[
 
 
 def failed(report: dict[str, Any], conformance_class: Optional[str] = None) -> list[str]:
-    """The ids of the failed tests, optionally within one class: core, covering or distribution."""
+    """The ids of the failed tests, optionally within one class: core, covering, distribution or native."""
     return [
         o["id"]
         for o in report["outcomes"]

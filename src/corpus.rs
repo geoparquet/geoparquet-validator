@@ -121,9 +121,20 @@ pub fn run(dir: &Path, schemas: &Schemas, verbose: bool) -> Result<()> {
             .copied()
             .filter(|f| expected.contains(f))
             .collect();
+        // A file whose only defect is the missing `geo` key, but whose geometry columns use the
+        // native Parquet types, is accepted under the native class (geoparquet#308).
+        let native = r
+            .outcomes
+            .iter()
+            .any(|o| o.class() == "native" && o.status != checks::Status::Skip);
         if kind == "?" {
             missed += 1;
             println!("  MISS  {name}: manifest entry has no expected_failure");
+        } else if kind == "metadata_missing" && native {
+            no_req += 1;
+            println!(
+                "  n/a   {name} [{kind}]: native GEOMETRY/GEOGRAPHY columns without `geo` metadata, judged by the native class (geoparquet#308); failed {fails:?}"
+            );
         } else if expected.is_empty() {
             no_req += 1;
             println!("  n/a   {name} [{kind}]: no spec requirement; failed {fails:?}");

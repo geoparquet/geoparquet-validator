@@ -83,8 +83,8 @@
 .gpv .report-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: .5rem 1rem; }
 .gpv .report-head .name { font: .92rem var(--mono); word-break: break-all; margin: 0; }
 .gpv .report-head .meta { color: var(--muted); font-size: .88rem; margin: 0; font-variant-numeric: tabular-nums; }
-.gpv .summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; }
-@media (max-width: 760px) { .gpv .summary { grid-template-columns: 1fr; } }
+.gpv .summary { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: .75rem; }
+@media (max-width: 760px) { .gpv .summary { grid-auto-flow: row; grid-template-columns: 1fr; } }
 .gpv .tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1rem; display: grid; gap: .5rem; align-content: start; }
 .gpv .tile .cls { font: 600 .95rem/1.2 var(--cond); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .gpv .tile .counts { font: .9rem var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); }
