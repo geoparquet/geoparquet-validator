@@ -144,7 +144,12 @@ fn print_text(r: &Report, class: Class) {
                     .map_or("", |o| o.message.as_str());
                 println!("  => core: {why}");
             } else if class == Class::Native {
-                println!("  => native: not applicable, the file has GeoParquet `geo` metadata");
+                let why = r
+                    .outcomes
+                    .iter()
+                    .find(|o| o.class() == "native")
+                    .map_or("", |o| o.message.as_str());
+                println!("  => native: {why}");
             }
             continue;
         }
@@ -189,7 +194,7 @@ fn print_text(r: &Report, class: Class) {
 
 fn print_summary(r: &Report) {
     let mut line = format!("{}  [{}]", r.file, r.version);
-    for c in classes(r) {
+    for c in ["core", "covering", "distribution", "native"] {
         let (p, f, s) = counts(r, c);
         line.push_str(&format!("  {c} {p}/{f}/{s}"));
     }
@@ -282,10 +287,18 @@ fn check(
     } else if !multi && let Some(r) = reports.first() {
         print_text(r, class);
     }
+    // `--class core` asks whether the file is conformant GeoParquet with `geo` metadata, so a
+    // file that does not claim core (native types only) fails it
+    let core_not_claimed = |r: &Report| {
+        r.outcomes
+            .iter()
+            .all(|o| o.class() != "core" || o.status == Status::Skip)
+    };
     let failed = reports.iter().any(|r| {
         r.outcomes
             .iter()
             .any(|o| o.status == Status::Fail && class.includes(o.class()))
+            || (class == Class::Core && core_not_claimed(r))
     });
     Ok(if tool_errors > 0 {
         2

@@ -226,7 +226,8 @@ pub struct Options {
     pub max_rows: Option<usize>,
 }
 
-/// How a distribution practice looks on this file. Advice never decides conformance: the
+/// How a practice looks on this file (distribution, and the form of the Parquet `crs`). Advice
+/// never decides conformance: the
 /// Cloud-Optimized Distribution class states two requirements, and the rest are recommendations
 /// of the GeoParquet distribution best practices.
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -255,7 +256,8 @@ pub struct Report {
     pub version: String,
     /// which rules were applied, in words
     pub rules: String,
-    /// how the distribution best practices look on this file (never a conformance verdict)
+    /// how the best practices look on this file: distribution, and the Parquet `crs` form
+    /// (never a conformance verdict)
     pub advice: Vec<Advice>,
     /// the shape of this document; bumped when a field changes meaning or goes away
     pub report_version: u32,
@@ -279,7 +281,7 @@ impl Tool {
 }
 
 /// The shape of the JSON report; see `schemas/report.schema.json`.
-pub const REPORT_VERSION: u32 = 1;
+pub const REPORT_VERSION: u32 = 2;
 
 impl Report {
     pub fn failed(&self, class: &str) -> Vec<&'static str> {
@@ -434,54 +436,85 @@ fn parquet_crs(lt: &Option<LogicalType>) -> Option<String> {
 }
 
 /// For a file without a `geo` key: the GeoParquet 2.0 metadata its native Parquet geospatial
-/// types state, so the tests that concern the column data can run on it. None when no root
+/// types state, so the tests that concern the column data can run on it. Geometry columns nested
+/// in a group are listed too (by their own name), so the nesting test reports them. None when no
 /// column uses GEOMETRY or GEOGRAPHY.
 fn native_geo(root: &[Arc<SchemaType>], kv: &HashMap<String, String>) -> Option<Value> {
     let mut columns = serde_json::Map::new();
     let mut primary: Option<String> = None;
     for f in root {
-        let lt = logical(f);
-        if !f.is_primitive() || !is_geo_logical(&lt) {
-            continue;
+        if f.is_primitive() {
+            let lt = logical(f);
+            if is_geo_logical(&lt) {
+                primary.get_or_insert_with(|| f.name().to_string());
+                columns.insert(f.name().to_string(), native_column(&lt, kv));
+            }
+        } else {
+            let mut nested = Vec::new();
+            geo_leaves(f, &mut nested);
+            for leaf in nested {
+                columns
+                    .entry(leaf.name().to_string())
+                    .or_insert_with(|| native_column(&logical(leaf), kv));
+            }
         }
-        let mut col = serde_json::Map::new();
-        col.insert("encoding".into(), "WKB".into());
-        col.insert("geometry_types".into(), Value::Array(Vec::new()));
-        let param = parquet_crs(&lt);
-        let param = param.as_deref().map(str::trim).filter(|p| !p.is_empty());
-        // An absent geo `crs` is OGC:CRS84, like an absent Parquet `crs`. PROJJSON carries over;
-        // an authority code cannot become PROJJSON without a CRS library, so it is left undefined
-        // here and judged by /conf/native/crs instead.
-        if let Some(p) = param
-            && Crs::from_parquet(Some(p), kv) != Crs::crs84()
-        {
-            let projjson = if p.starts_with('{') {
-                serde_json::from_str::<Value>(p).ok()
-            } else if let Some(key) = p.strip_prefix("projjson:") {
-                kv.get(key).and_then(|s| serde_json::from_str(s).ok())
-            } else {
-                None
-            };
-            col.insert(
-                "crs".into(),
-                projjson.filter(Value::is_object).unwrap_or(Value::Null),
-            );
-        }
-        if let Some(LogicalType::Geography(g)) = &lt {
-            let algorithm = g.algorithm().unwrap_or_default();
-            col.insert(
-                "edges".into(),
-                format!("{algorithm:?}").to_ascii_lowercase().into(),
-            );
-        }
-        primary.get_or_insert_with(|| f.name().to_string());
-        columns.insert(f.name().to_string(), Value::Object(col));
     }
+    let primary = primary.or_else(|| columns.keys().next().cloned())?;
     Some(serde_json::json!({
         "version": "2.0.0",
-        "primary_column": primary?,
+        "primary_column": primary,
         "columns": columns,
     }))
+}
+
+/// The leaves below a group field that use a GEOMETRY or GEOGRAPHY logical type.
+fn geo_leaves<'a>(f: &'a Arc<SchemaType>, out: &mut Vec<&'a Arc<SchemaType>>) {
+    for c in f.get_fields() {
+        if c.is_group() {
+            geo_leaves(c, out);
+        } else if is_geo_logical(&logical(c)) {
+            out.push(c);
+        }
+    }
+}
+
+/// The GeoParquet column metadata a native geometry column states.
+fn native_column(lt: &Option<LogicalType>, kv: &HashMap<String, String>) -> Value {
+    let mut col = serde_json::Map::new();
+    col.insert("encoding".into(), "WKB".into());
+    col.insert("geometry_types".into(), Value::Array(Vec::new()));
+    let param = parquet_crs(lt);
+    let param = param.as_deref().map(str::trim).filter(|p| !p.is_empty());
+    if let Some(p) = param {
+        // PROJJSON (inline or under a key) carries over, so crs-projjson validates it even when it
+        // names OGC:CRS84. Any other form cannot become PROJJSON without a CRS library: it stays
+        // absent when it is OGC:CRS84 (so the coordinate range is checked) and undefined otherwise,
+        // and /conf/native/crs judges it.
+        let projjson = if p.starts_with('{') {
+            serde_json::from_str::<Value>(p).ok()
+        } else if let Some(key) = p.strip_prefix("projjson:") {
+            kv.get(key).and_then(|s| serde_json::from_str(s).ok())
+        } else {
+            None
+        };
+        match projjson.filter(Value::is_object) {
+            Some(v) => {
+                col.insert("crs".into(), v);
+            }
+            None if Crs::from_parquet(Some(p), kv) == Crs::crs84() => {}
+            None => {
+                col.insert("crs".into(), Value::Null);
+            }
+        }
+    }
+    if let Some(LogicalType::Geography(g)) = lt {
+        let algorithm = g.algorithm().unwrap_or_default();
+        col.insert(
+            "edges".into(),
+            format!("{algorithm:?}").to_ascii_lowercase().into(),
+        );
+    }
+    Value::Object(col)
 }
 
 /// How a Parquet `crs` parameter states its CRS, against the recommendation of the `crs` Parquet
@@ -511,11 +544,22 @@ fn crs_form(param: Option<&str>, kv: &HashMap<String, String>) -> CrsForm {
             Err(e) => CrsForm::Broken(format!("the inline PROJJSON does not parse: {e}")),
         };
     }
-    if p == "srid:0" {
-        return CrsForm::Recommended;
+    let lower = p.to_ascii_lowercase();
+    if (lower.starts_with("srid:") && !p.starts_with("srid:"))
+        || (lower.starts_with("projjson:") && !p.starts_with("projjson:"))
+    {
+        // the Parquet specification spells these prefixes in lower case
+        return CrsForm::Other(shown);
     }
-    if p.starts_with("srid:") {
-        return CrsForm::Srid(shown);
+    if let Some(id) = p.strip_prefix("srid:") {
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
+            return CrsForm::Broken(format!("`{shown}`: `srid:` needs a numeric identifier"));
+        }
+        return if id.parse::<u64>() == Ok(0) {
+            CrsForm::Recommended
+        } else {
+            CrsForm::Srid(shown)
+        };
     }
     if let Some(key) = p.strip_prefix("projjson:") {
         return match kv.get(key).map(|s| serde_json::from_str::<Value>(s)) {
@@ -528,8 +572,13 @@ fn crs_form(param: Option<&str>, kv: &HashMap<String, String>) -> CrsForm {
             )),
         };
     }
+    // <authority>:<code> with a plain code (not a URL or URN)
+    let plain_code = p.split_once(':').is_some_and(|(_, c)| {
+        c.chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+    });
     match Crs::from_parquet(Some(p), kv) {
-        Crs::Authority(..) => CrsForm::Recommended,
+        Crs::Authority(..) if plain_code => CrsForm::Recommended,
         _ => CrsForm::Other(shown),
     }
 }
@@ -1032,6 +1081,30 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
         .get_fields()
         .to_vec();
 
+    // advice on the form of each native geometry column's Parquet `crs`, whatever the metadata
+    {
+        let mut native_fields: Vec<&Arc<SchemaType>> = Vec::new();
+        for f in &root {
+            if f.is_group() {
+                geo_leaves(f, &mut native_fields);
+            } else if is_geo_logical(&logical(f)) {
+                native_fields.push(f);
+            }
+        }
+        for f in native_fields {
+            if let Some((level, message)) = crs_advice(
+                f.name(),
+                &crs_form(parquet_crs(&logical(f)).as_deref(), &kv),
+            ) {
+                advice.borrow_mut().push(Advice {
+                    topic: "crs form",
+                    level,
+                    message,
+                });
+            }
+        }
+    }
+
     // /conf/core/geo-metadata
     let mut t = T::new(GEO_METADATA);
     let mut spec = Spec::V2_0;
@@ -1405,16 +1478,6 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
         // 1.x files have no Parquet crs parameter unless written with native types
         let parquet =
             is_geo_logical(&lt).then(|| Crs::from_parquet(parquet_crs(&lt).as_deref(), &kv));
-        if is_geo_logical(&lt)
-            && let Some((level, message)) =
-                crs_advice(name, &crs_form(parquet_crs(&lt).as_deref(), &kv))
-        {
-            advice.borrow_mut().push(Advice {
-                topic: "crs form",
-                level,
-                message,
-            });
-        }
         if let Some(b) = &parquet {
             let a = Crs::from_geo(col);
             match (&a, b) {
@@ -2034,11 +2097,17 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
             let param = parquet_crs(&logical(f));
             match crs_form(param.as_deref(), &kv) {
                 CrsForm::Broken(e) => t.fail(format!("`{name}`: {e}")),
-                _ => {
+                CrsForm::Recommended => {
                     t.ok();
                     t.note(format!(
                         "`{name}`: {}",
                         Crs::from_parquet(param.as_deref(), &kv).describe()
+                    ));
+                }
+                CrsForm::Srid(p) | CrsForm::ProjjsonKey(p) | CrsForm::Other(p) => {
+                    t.ok();
+                    t.note(format!(
+                        "`{name}`: `{p}`, well-formed but not a recommended form (see the crs form advice)"
                     ));
                 }
             }

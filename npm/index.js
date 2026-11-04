@@ -29,7 +29,19 @@ export function failed(report, conformanceClass) {
     .map((o) => o.id);
 }
 
-/** True when no test of the class failed. */
-export function conformant(report, conformanceClass = "core") {
-  return failed(report, conformanceClass).length === 0;
+/** Whether any test of the class ran (a class with every test skipped is not claimed). */
+function claimed(report, conformanceClass) {
+  return report.outcomes.some((o) => o.status !== "skip" && o.id.startsWith(`/conf/${conformanceClass}/`));
+}
+
+/**
+ * True when the file conforms. With no class, the class the file is judged by: core for a file
+ * with GeoParquet `geo` metadata, native for one whose geometry columns use the native Parquet
+ * GEOMETRY/GEOGRAPHY types without it. With "core", a file that does not claim core is not
+ * conformant; for the other classes, true when no test of the class failed.
+ */
+export function conformant(report, conformanceClass) {
+  const cls = conformanceClass ?? (claimed(report, "native") ? "native" : "core");
+  if (cls === "core" && !claimed(report, "core")) return false;
+  return failed(report, cls).length === 0;
 }

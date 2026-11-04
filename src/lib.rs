@@ -91,6 +91,6 @@ mod tests {
             .map(|e| e.to_string())
             .collect();
         assert!(errors.is_empty(), "{errors:?}");
-        assert_eq!(value["report_version"], 1);
+        assert_eq!(value["report_version"], 2);
     }
 }

@@ -6,7 +6,7 @@
   "type": "object",
   "required": ["report_version", "tool", "file", "version", "rules", "sampled", "outcomes", "advice"],
   "properties": {
-    "report_version": { "const": 1 },
+    "report_version": { "const": 2 },
     "tool": {
       "type": "object",
       "required": ["name", "version"],
@@ -37,7 +37,7 @@
     },
     "advice": {
       "type": "array",
-      "description": "the distribution best practices measured on the file; never a conformance verdict",
+      "description": "the best practices measured on the file (distribution, and the form of the Parquet crs); never a conformance verdict",
       "items": {
         "type": "object",
         "required": ["topic", "level", "message"],

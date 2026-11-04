@@ -18,7 +18,13 @@ function failed(report, conformanceClass) {
     .filter((o) => o.status === "fail" && (!conformanceClass || o.id.startsWith(`/conf/${conformanceClass}/`)))
     .map((o) => o.id);
 }
-function conformant(report, conformanceClass = "core") {
-  return failed(report, conformanceClass).length === 0;
+function claimed(report, conformanceClass) {
+  return report.outcomes.some((o) => o.status !== "skip" && o.id.startsWith(`/conf/${conformanceClass}/`));
+}
+// With no class: core for a file with `geo` metadata, native for one with only the native types.
+function conformant(report, conformanceClass) {
+  const cls = conformanceClass ?? (claimed(report, "native") ? "native" : "core");
+  if (cls === "core" && !claimed(report, "core")) return false;
+  return failed(report, cls).length === 0;
 }
 module.exports = { check, checkBytes, failed, conformant };

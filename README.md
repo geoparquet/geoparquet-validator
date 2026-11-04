@@ -67,7 +67,9 @@ A file without a `geo` key whose geometry columns use the native Parquet geospat
 written by DuckDB, Iceberg and the data platforms) is not a failed GeoParquet file: GeoParquet 2.0
 readers read it ([geoparquet#308](https://github.com/opengeospatial/geoparquet/issues/308)). Core is
 then not claimed, and the native class runs the core tests that concern the column data (column
-type, nesting, repetition, WKB, CRS) plus `/conf/native/crs`, that the Parquet `crs` can be read.
+type, nesting, repetition, WKB, CRS) plus `/conf/native/crs`, that the Parquet `crs` is well-formed
+(PROJJSON that parses, a `projjson:` key that exists, a numeric `srid:`). The exit code then follows
+the native class; `--class core` exits 1 for such a file, since it does not claim core.
 The class will take the name the specification gives it
 ([geoparquet#304](https://github.com/opengeospatial/geoparquet/issues/304)).
 
@@ -86,7 +88,8 @@ a PROJJSON without an identifier is reported as "cannot compare", not passed or 
 Every surface returns the same report, described by [`schemas/report.schema.json`](schemas/report.schema.json):
 the 36 outcomes (`pass`, `fail`, `skip`, each with a message), the version the file declares, the rules
 applied, whether the data tests were sampled, and the advice. `report_version` is bumped
-when a field changes meaning; fields may be added without a bump.
+when a field changes meaning; fields may be added without a bump. Version 2 added the native class: a file
+without `geo` metadata is no longer a core failure when its geometry columns use the native types.
 
 **Command line, from any language**
 

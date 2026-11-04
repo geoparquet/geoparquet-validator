@@ -47,6 +47,7 @@ fn expected_tests(kind: &str) -> &'static [&'static str] {
 fn core_and_covering_failures(r: &Report) -> Vec<&'static str> {
     let mut v = r.failed("core");
     v.extend(r.failed("covering"));
+    v.extend(r.failed("native"));
     v
 }
 
@@ -126,7 +127,8 @@ pub fn run(dir: &Path, schemas: &Schemas, verbose: bool) -> Result<()> {
         let native = r
             .outcomes
             .iter()
-            .any(|o| o.class() == "native" && o.status != checks::Status::Skip);
+            .any(|o| o.class() == "native" && o.status != Status::Skip)
+            && r.failed("native").is_empty();
         if kind == "?" {
             missed += 1;
             println!("  MISS  {name}: manifest entry has no expected_failure");
