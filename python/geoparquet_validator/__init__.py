@@ -4,7 +4,7 @@
     >>> report = gpv.check("example.parquet")
     >>> report["outcomes"][0]
     {'id': '/conf/core/geo-metadata', 'status': 'pass', 'message': ''}
-    >>> gpv.conformant(report, "core")
+    >>> gpv.conformant(report)  # core, or native for a file without `geo` metadata
     True
 
 The report is a plain dict with the shape of schemas/report.schema.json in the repository.
@@ -37,7 +37,7 @@ def check_bytes(name: str, data: bytes, max_rows: Optional[int] = None) -> dict[
 
 
 def failed(report: dict[str, Any], conformance_class: Optional[str] = None) -> list[str]:
-    """The ids of the failed tests, optionally within one class: core, covering or distribution."""
+    """The ids of the failed tests, optionally within one class: core, covering, distribution or native."""
     return [
         o["id"]
         for o in report["outcomes"]
@@ -46,9 +46,23 @@ def failed(report: dict[str, Any], conformance_class: Optional[str] = None) -> l
     ]
 
 
-def conformant(report: dict[str, Any], conformance_class: str = "core") -> bool:
-    """True when no test of the class failed. A class with every test skipped is not claimed;
-    this still returns True, so check `report["outcomes"]` if the distinction matters."""
+def _claimed(report: dict[str, Any], conformance_class: str) -> bool:
+    prefix = f"/conf/{conformance_class}/"
+    return any(o["status"] != "skip" and o["id"].startswith(prefix) for o in report["outcomes"])
+
+
+def conformant(report: dict[str, Any], conformance_class: Optional[str] = None) -> bool:
+    """True when the file conforms.
+
+    With no class, the class the file is judged by: core for a file with GeoParquet `geo`
+    metadata, native for a Parquet file whose geometry columns use the native GEOMETRY/GEOGRAPHY
+    types without it. With "core", a file that does not claim core (no `geo` metadata) is not
+    conformant. For the other classes, True when no test of the class failed; a class with every
+    test skipped is not claimed and still returns True."""
+    if conformance_class is None:
+        conformance_class = "native" if _claimed(report, "native") else "core"
+    if conformance_class == "core" and not _claimed(report, "core"):
+        return False
     return not failed(report, conformance_class)
 
 

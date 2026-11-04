@@ -6,6 +6,7 @@ const CLASSES = [
   ["core", "Core", "Every GeoParquet file"],
   ["covering", "Bounding Box Covering", "Files that declare a bbox covering"],
   ["distribution", "Cloud-Optimized Distribution", "Optional profile for direct cloud access"],
+  ["native", "Native Parquet geospatial", "GEOMETRY/GEOGRAPHY columns without GeoParquet metadata"],
 ];
 let running = false;
 
@@ -16,21 +17,35 @@ function setStatus(html, cls) { $("status").innerHTML = html; $("status").classN
 function render(report, label) {
   const r = $("result");
   const counts = Object.fromEntries(CLASSES.map(([k]) => [k, { pass: 0, fail: 0, skip: 0 }]));
-  for (const o of report.outcomes) counts[o.id.split("/")[2]][o.status]++;
+  for (const o of report.outcomes) {
+    const k = o.id.split("/")[2];
+    if (counts[k]) counts[k][o.status]++;
+  }
+  // a file without `geo` metadata is judged by the native class: show it first and fold core;
+  // a GeoParquet file does not show the native class at all
+  const native = counts.native.pass + counts.native.fail > 0;
+  const shown = native
+    ? [CLASSES[3], CLASSES[0], CLASSES[1], CLASSES[2]]
+    : CLASSES.slice(0, 3);
   const verdict = (n) => n.fail ? ["fail", "Not conformant"] : n.pass ? ["pass", "Conformant"] : ["skip", "Not claimed"];
   let html = `<div class="report">`;
   html += `<div class="report-head"><p class="name">${label ? `<span>${esc(label)} · </span>` : ""}${esc(report.file)}</p>`;
-  const meta = [`GeoParquet ${report.version || "?"}`];
+  const meta = [native ? "Native Parquet geospatial types, no GeoParquet metadata" : `GeoParquet ${report.version || "?"}`];
   if (report.traffic) meta.push(`${(report.traffic[0] / 1e6).toFixed(1)} MB read in ${report.traffic[1]} range request${report.traffic[1] === 1 ? "" : "s"}`);
   if (report.sampled) meta.push("first row groups only: the data tests are a sample");
   if (meta.length) html += `<p class="meta">${esc(meta.join(" · "))}</p>`;
   html += `</div><div class="summary">`;
-  for (const [k, title, sub] of CLASSES) {
+  for (const [k, title, sub] of shown) {
     const n = counts[k], [vc, vt] = verdict(n);
     html += `<div class="tile"><div class="cls">${title}</div><span class="verdict ${vc}">${vt}</span><div class="counts"><b>${n.pass}</b> pass · <b>${n.fail}</b> fail · <b>${n.skip}</b> skipped</div><div class="meta" style="font-size:.82rem">${sub}</div></div>`;
   }
   html += `</div><div class="detail">`;
-  for (const [k, title] of CLASSES) {
+  for (const [k, title] of shown) {
+    if (native && k === "core") {
+      const why = (report.outcomes.find((o) => o.id === "/conf/core/geo-metadata") || {}).message;
+      html += `<h3>${title}</h3><p class="meta">${fmtMsg(why)}</p>`;
+      continue;
+    }
     const rows = report.outcomes.filter((o) => o.id.split("/")[2] === k);
     html += `<h3>${title}</h3><div class="tablewrap"><table class="tests"><tbody>`;
     for (const o of rows) {
@@ -40,7 +55,7 @@ function render(report, label) {
   }
   html += `</div>`;
   if (report.advice && report.advice.length) {
-    html += `<h3>Distribution best practices <small>advice from <a href="https://github.com/opengeospatial/geoparquet/blob/main/format-specs/distributing-geoparquet.md">Distributing GeoParquet</a></small></h3><div class="tablewrap"><table class="tests"><tbody>`;
+    html += `<h3>Best practices <small>advice from <a href="https://github.com/opengeospatial/geoparquet/blob/main/format-specs/distributing-geoparquet.md">Distributing GeoParquet</a> and the <a href="https://github.com/opengeospatial/geoparquet/blob/main/format-specs/geoparquet.md#crs-parquet-property">crs recommendation</a></small></h3><div class="tablewrap"><table class="tests"><tbody>`;
     const level = { good: "pass", consider: "skip", poor: "fail" };
     for (const a of report.advice) {
       const s = level[a.level] || "skip";

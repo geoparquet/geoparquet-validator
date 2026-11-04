@@ -163,3 +163,24 @@ rings = pa.ListArray.from_arrays(pa.array([0, len(ring)], pa.int32()), xy_struct
 polygon_col = pa.ListArray.from_arrays(pa.array([0, 1], pa.int32()), rings)                     # one polygon
 write_v("v11_geoarrow_polygon", pa.table({"id": [1], "geometry": polygon_col}),
         {"geometry": {"encoding": "polygon", "geometry_types": ["Polygon"], "crs": CRS84}}, "1.1.0")
+
+# --- native Parquet geospatial types without GeoParquet metadata (geoparquet#308): core is not
+# claimed and the native class applies; the Parquet `crs` form is advice, not conformance ---
+def write_native(name, table, extra_kv=None):
+    if extra_kv:
+        table = table.replace_schema_metadata({k.encode(): v.encode() for k, v in extra_kv.items()})
+    path = OUT / f"{name}.parquet"
+    pq.write_table(table, path, compression="zstd")
+    assert b"geo" not in (pq.read_metadata(path).metadata or {}), name
+    print(f"wrote {name}")
+
+write_native("native_only_crs84", pa.table({"geometry": geom}))
+write_native("native_only_projjson_inline", pa.table({"geometry": with_crs(EPSG3857)}))
+write_native("native_only_authority", pa.table({"geometry": with_crs("EPSG:3857")}))
+write_native("native_only_srid", pa.table({"geometry": with_crs("srid:3857")}))             # advice only
+write_native("native_only_projjson_key", pa.table({"geometry": with_crs("projjson:my_crs")}), extra_kv={"my_crs": json.dumps(EPSG3857)})
+write_native("native_only_projjson_key_missing", pa.table({"geometry": with_crs("projjson:nope")}))  # native/crs fails
+write_native("native_only_crs84_out_of_range", pa.table({"geometry": ga.as_wkb(["POINT (500000 4000000)"])}))  # native/crs-default fails
+write_native("native_only_geography", pa.table({"geometry": ga.with_edge_type(geom, ga.EdgeType.SPHERICAL)}))
+write_native("native_only_wkb_truncated", pa.table({"geometry": ga.wkb().wrap_array(pa.array([b"\x01\x01\x00"], pa.binary()))}))  # native/wkb fails
+write_native("native_only_two_columns", pa.table({"a": geom, "b": with_crs("EPSG:3857")}))

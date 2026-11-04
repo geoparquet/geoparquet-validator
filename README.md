@@ -54,13 +54,28 @@ geoparquet-validator check ./directory/                      # every .parquet be
 were sampled, which is not a conformance pass. Exit codes: 0 conformant, 1 a test failed, 2 the tool
 could not run (unreadable path, bad URL, network).
 
-A report has three conformance classes, each `conformant`, `NOT CONFORMANT` or `not claimed`:
+A report has four conformance classes, each `conformant`, `NOT CONFORMANT` or `not claimed`:
 
 | Class | Applies to | Tests |
 | --- | --- | --- |
-| Core | every file | 20 |
+| Core | files with GeoParquet `geo` metadata | 20 |
+| Native | Parquet files whose geometry columns use the native `GEOMETRY`/`GEOGRAPHY` logical types, without `geo` metadata | 8 |
 | Bounding Box Covering | files that declare a `covering` | 6 |
 | Cloud-Optimized Distribution | an optional profile for direct cloud access | 2, plus the advice |
+
+A file without a `geo` key whose geometry columns use the native Parquet geospatial types (as
+written by DuckDB, Iceberg and the data platforms) is not a failed GeoParquet file: GeoParquet 2.0
+readers read it ([geoparquet#308](https://github.com/opengeospatial/geoparquet/issues/308)). Core is
+then not claimed, and the native class runs the core tests that concern the column data (column
+type, nesting, repetition, WKB, CRS) plus `/conf/native/crs`, that the Parquet `crs` is well-formed
+(PROJJSON that parses, a `projjson:` key that exists, a numeric `srid:`). The exit code then follows
+the native class; `--class core` exits 1 for such a file, since it does not claim core.
+The class will take the name the specification gives it
+([geoparquet#304](https://github.com/opengeospatial/geoparquet/issues/304)).
+
+For every file with native geometry columns, the advice also checks the form of the Parquet `crs`
+against the specification's recommendation: inline PROJJSON or `<authority>:<code>`, `srid:0` for an
+unknown CRS. Other forms (`srid:<n>`, `projjson:<key>`, anything else) get a note, never a failure.
 
 Each file is checked against the rules of the version it declares, under the same test identifiers,
 and the report says which rules were applied. For 1.0 and 1.1 that means their own JSON Schema, WKB
@@ -71,9 +86,10 @@ row groups, pass at 70 % of it, no verdict below five row groups. CRS equality i
 a PROJJSON without an identifier is reported as "cannot compare", not passed or failed.
 
 Every surface returns the same report, described by [`schemas/report.schema.json`](schemas/report.schema.json):
-the 28 outcomes (`pass`, `fail`, `skip`, each with a message), the version the file declares, the rules
-applied, whether the data tests were sampled, and the distribution advice. `report_version` is bumped
-when a field changes meaning; fields may be added without a bump.
+the 36 outcomes (`pass`, `fail`, `skip`, each with a message), the version the file declares, the rules
+applied, whether the data tests were sampled, and the advice. `report_version` is bumped
+when a field changes meaning; fields may be added without a bump. Version 2 added the native class: a file
+without `geo` metadata is no longer a core failure when its geometry columns use the native types.
 
 **Command line, from any language**
 

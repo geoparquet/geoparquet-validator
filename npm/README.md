@@ -8,7 +8,7 @@ https://validator.geoparquet.org/.
 import { check, conformant, failed } from "geoparquet-validator";
 
 const report = await check("example.parquet");        // or an https:// URL, downloaded whole
-console.log(report.version, conformant(report, "core"), failed(report));
+console.log(report.version, conformant(report), failed(report));
 ```
 
 In a browser, import `geoparquet-validator/bundler` through your bundler and call

@@ -50,8 +50,48 @@ pub const COV_REPETITION: &str = "/conf/covering/bbox-column-repetition";
 pub const COV_NESTING: &str = "/conf/covering/bbox-column-nesting";
 pub const DIST_STATS: &str = "/conf/distribution/geospatial-statistics";
 pub const DIST_SPATIAL_ORDER: &str = "/conf/distribution/spatial-order";
+// Parquet files that use the native GEOMETRY/GEOGRAPHY logical types without GeoParquet `geo`
+// metadata (opengeospatial/geoparquet#308, conformance class to be named in #304). The tests
+// are the core tests that apply to the column data, plus the form of the Parquet `crs`.
+pub const NATIVE_GEOMETRY_COLUMN_TYPE: &str = "/conf/native/geometry-column-type";
+pub const NATIVE_GEOMETRY_COLUMN_NESTING: &str = "/conf/native/geometry-column-nesting";
+pub const NATIVE_GEOMETRY_COLUMN_REPETITION: &str = "/conf/native/geometry-column-repetition";
+pub const NATIVE_WKB: &str = "/conf/native/wkb";
+pub const NATIVE_CRS: &str = "/conf/native/crs";
+pub const NATIVE_CRS_PROJJSON: &str = "/conf/native/crs-projjson";
+pub const NATIVE_CRS_DEFAULT: &str = "/conf/native/crs-default";
+pub const NATIVE_AXIS_ORDER: &str = "/conf/native/axis-order";
 
-pub const ALL_IDS: [&str; 28] = [
+const NATIVE_IDS: [&str; 8] = [
+    NATIVE_GEOMETRY_COLUMN_TYPE,
+    NATIVE_GEOMETRY_COLUMN_NESTING,
+    NATIVE_GEOMETRY_COLUMN_REPETITION,
+    NATIVE_WKB,
+    NATIVE_CRS,
+    NATIVE_CRS_PROJJSON,
+    NATIVE_CRS_DEFAULT,
+    NATIVE_AXIS_ORDER,
+];
+
+const NATIVE_RULES: &str = "the native Parquet geospatial types without GeoParquet metadata; the native class applies the GeoParquet 2.0 rules to the geometry columns";
+const NOT_CLAIMED_NATIVE: &str = "not claimed: no `geo` key. The file uses the native Parquet GEOMETRY/GEOGRAPHY types without GeoParquet metadata, which GeoParquet 2.0 readers read; see the native class";
+const NOT_CLAIMED_CORE: &str = "not claimed: no `geo` metadata (see the native class)";
+
+/// The core test whose result a native test carries over, for a file without `geo` metadata.
+fn native_counterpart(core: &str) -> Option<&'static str> {
+    Some(match core {
+        GEOMETRY_COLUMN_TYPE => NATIVE_GEOMETRY_COLUMN_TYPE,
+        GEOMETRY_COLUMN_NESTING => NATIVE_GEOMETRY_COLUMN_NESTING,
+        GEOMETRY_COLUMN_REPETITION => NATIVE_GEOMETRY_COLUMN_REPETITION,
+        WKB => NATIVE_WKB,
+        CRS_PROJJSON => NATIVE_CRS_PROJJSON,
+        CRS_DEFAULT => NATIVE_CRS_DEFAULT,
+        AXIS_ORDER => NATIVE_AXIS_ORDER,
+        _ => return None,
+    })
+}
+
+pub const ALL_IDS: [&str; 36] = [
     GEO_METADATA,
     FILE_METADATA,
     COLUMN_METADATA,
@@ -80,6 +120,14 @@ pub const ALL_IDS: [&str; 28] = [
     COV_NESTING,
     DIST_STATS,
     DIST_SPATIAL_ORDER,
+    NATIVE_GEOMETRY_COLUMN_TYPE,
+    NATIVE_GEOMETRY_COLUMN_NESTING,
+    NATIVE_GEOMETRY_COLUMN_REPETITION,
+    NATIVE_WKB,
+    NATIVE_CRS,
+    NATIVE_CRS_PROJJSON,
+    NATIVE_CRS_DEFAULT,
+    NATIVE_AXIS_ORDER,
 ];
 const COVERING_IDS: [&str; 6] = [
     COV_KEYS,
@@ -178,7 +226,8 @@ pub struct Options {
     pub max_rows: Option<usize>,
 }
 
-/// How a distribution practice looks on this file. Advice never decides conformance: the
+/// How a practice looks on this file (distribution, and the form of the Parquet `crs`). Advice
+/// never decides conformance: the
 /// Cloud-Optimized Distribution class states two requirements, and the rest are recommendations
 /// of the GeoParquet distribution best practices.
 #[derive(Serialize, Clone, Copy, PartialEq, Eq, Debug)]
@@ -207,7 +256,8 @@ pub struct Report {
     pub version: String,
     /// which rules were applied, in words
     pub rules: String,
-    /// how the distribution best practices look on this file (never a conformance verdict)
+    /// how the best practices look on this file: distribution, and the Parquet `crs` form
+    /// (never a conformance verdict)
     pub advice: Vec<Advice>,
     /// the shape of this document; bumped when a field changes meaning or goes away
     pub report_version: u32,
@@ -231,7 +281,7 @@ impl Tool {
 }
 
 /// The shape of the JSON report; see `schemas/report.schema.json`.
-pub const REPORT_VERSION: u32 = 1;
+pub const REPORT_VERSION: u32 = 2;
 
 impl Report {
     pub fn failed(&self, class: &str) -> Vec<&'static str> {
@@ -382,6 +432,185 @@ fn parquet_crs(lt: &Option<LogicalType>) -> Option<String> {
         Some(LogicalType::Geometry(g)) => g.crs.clone(),
         Some(LogicalType::Geography(g)) => g.crs.clone(),
         _ => None,
+    }
+}
+
+/// For a file without a `geo` key: the GeoParquet 2.0 metadata its native Parquet geospatial
+/// types state, so the tests that concern the column data can run on it. Geometry columns nested
+/// in a group are listed too (by their own name), so the nesting test reports them. None when no
+/// column uses GEOMETRY or GEOGRAPHY.
+fn native_geo(root: &[Arc<SchemaType>], kv: &HashMap<String, String>) -> Option<Value> {
+    let mut columns = serde_json::Map::new();
+    let mut primary: Option<String> = None;
+    for f in root {
+        if f.is_primitive() {
+            let lt = logical(f);
+            if is_geo_logical(&lt) {
+                primary.get_or_insert_with(|| f.name().to_string());
+                columns.insert(f.name().to_string(), native_column(&lt, kv));
+            }
+        } else {
+            let mut nested = Vec::new();
+            geo_leaves(f, &mut nested);
+            for leaf in nested {
+                columns
+                    .entry(leaf.name().to_string())
+                    .or_insert_with(|| native_column(&logical(leaf), kv));
+            }
+        }
+    }
+    let primary = primary.or_else(|| columns.keys().next().cloned())?;
+    Some(serde_json::json!({
+        "version": "2.0.0",
+        "primary_column": primary,
+        "columns": columns,
+    }))
+}
+
+/// The leaves below a group field that use a GEOMETRY or GEOGRAPHY logical type.
+fn geo_leaves<'a>(f: &'a Arc<SchemaType>, out: &mut Vec<&'a Arc<SchemaType>>) {
+    for c in f.get_fields() {
+        if c.is_group() {
+            geo_leaves(c, out);
+        } else if is_geo_logical(&logical(c)) {
+            out.push(c);
+        }
+    }
+}
+
+/// The GeoParquet column metadata a native geometry column states.
+fn native_column(lt: &Option<LogicalType>, kv: &HashMap<String, String>) -> Value {
+    let mut col = serde_json::Map::new();
+    col.insert("encoding".into(), "WKB".into());
+    col.insert("geometry_types".into(), Value::Array(Vec::new()));
+    let param = parquet_crs(lt);
+    let param = param.as_deref().map(str::trim).filter(|p| !p.is_empty());
+    if let Some(p) = param {
+        // PROJJSON (inline or under a key) carries over, so crs-projjson validates it even when it
+        // names OGC:CRS84. Any other form cannot become PROJJSON without a CRS library: it stays
+        // absent when it is OGC:CRS84 (so the coordinate range is checked) and undefined otherwise,
+        // and /conf/native/crs judges it.
+        let projjson = if p.starts_with('{') {
+            serde_json::from_str::<Value>(p).ok()
+        } else if let Some(key) = p.strip_prefix("projjson:") {
+            kv.get(key).and_then(|s| serde_json::from_str(s).ok())
+        } else {
+            None
+        };
+        match projjson.filter(Value::is_object) {
+            Some(v) => {
+                col.insert("crs".into(), v);
+            }
+            None if Crs::from_parquet(Some(p), kv) == Crs::crs84() => {}
+            None => {
+                col.insert("crs".into(), Value::Null);
+            }
+        }
+    }
+    if let Some(LogicalType::Geography(g)) = lt {
+        let algorithm = g.algorithm().unwrap_or_default();
+        col.insert(
+            "edges".into(),
+            format!("{algorithm:?}").to_ascii_lowercase().into(),
+        );
+    }
+    Value::Object(col)
+}
+
+/// How a Parquet `crs` parameter states its CRS, against the recommendation of the `crs` Parquet
+/// property section of the specification: inline PROJJSON or `<authority>:<code>`, and `srid:0`
+/// for an unknown CRS. Readers must interpret those forms; the others they only should.
+enum CrsForm {
+    Recommended,
+    Srid(String),
+    ProjjsonKey(String),
+    Other(String),
+    Broken(String),
+}
+
+fn crs_form(param: Option<&str>, kv: &HashMap<String, String>) -> CrsForm {
+    let Some(p) = param.map(str::trim).filter(|p| !p.is_empty()) else {
+        return CrsForm::Recommended; // absent: OGC:CRS84
+    };
+    let shown: String = if p.chars().count() > 80 {
+        format!("{}…", p.chars().take(80).collect::<String>())
+    } else {
+        p.to_string()
+    };
+    if p.starts_with('{') {
+        return match serde_json::from_str::<Value>(p) {
+            Ok(Value::Object(_)) => CrsForm::Recommended,
+            Ok(_) => CrsForm::Broken("the inline PROJJSON is not a JSON object".into()),
+            Err(e) => CrsForm::Broken(format!("the inline PROJJSON does not parse: {e}")),
+        };
+    }
+    let lower = p.to_ascii_lowercase();
+    if (lower.starts_with("srid:") && !p.starts_with("srid:"))
+        || (lower.starts_with("projjson:") && !p.starts_with("projjson:"))
+    {
+        // the Parquet specification spells these prefixes in lower case
+        return CrsForm::Other(shown);
+    }
+    if let Some(id) = p.strip_prefix("srid:") {
+        if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
+            return CrsForm::Broken(format!("`{shown}`: `srid:` needs a numeric identifier"));
+        }
+        return if id.parse::<u64>() == Ok(0) {
+            CrsForm::Recommended
+        } else {
+            CrsForm::Srid(shown)
+        };
+    }
+    if let Some(key) = p.strip_prefix("projjson:") {
+        return match kv.get(key).map(|s| serde_json::from_str::<Value>(s)) {
+            None => CrsForm::Broken(format!(
+                "`{shown}` names a file metadata key that is not present"
+            )),
+            Some(Ok(Value::Object(_))) => CrsForm::ProjjsonKey(shown),
+            Some(_) => CrsForm::Broken(format!(
+                "`{shown}`: the file metadata value is not a PROJJSON object"
+            )),
+        };
+    }
+    // <authority>:<code> with a plain code (not a URL or URN)
+    let plain_code = p.split_once(':').is_some_and(|(_, c)| {
+        c.chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-'))
+    });
+    match Crs::from_parquet(Some(p), kv) {
+        Crs::Authority(..) if plain_code => CrsForm::Recommended,
+        _ => CrsForm::Other(shown),
+    }
+}
+
+const CRS_RECOMMENDATION: &str = "inline PROJJSON or `<authority>:<code>` (e.g. `EPSG:4326`) is recommended, the forms every GeoParquet 2.0 reader must interpret, with `srid:0` for an unknown CRS";
+
+/// The advice on a column's Parquet `crs` form; None when it follows the recommendation.
+fn crs_advice(name: &str, form: &CrsForm) -> Option<(Level, String)> {
+    match form {
+        CrsForm::Recommended => None,
+        CrsForm::Srid(p) => Some((
+            Level::Consider,
+            format!(
+                "`{name}`: the Parquet `crs` is `{p}`, which only readers that share the writer's SRID table can resolve; {CRS_RECOMMENDATION}"
+            ),
+        )),
+        CrsForm::ProjjsonKey(p) => Some((
+            Level::Consider,
+            format!(
+                "`{name}`: the Parquet `crs` is `{p}`, PROJJSON kept in the file metadata, which readers only should resolve; {CRS_RECOMMENDATION}"
+            ),
+        )),
+        CrsForm::Other(p) => Some((
+            Level::Poor,
+            format!(
+                "`{name}`: the Parquet `crs` is `{p}`, not a form GeoParquet 2.0 readers are required to interpret; {CRS_RECOMMENDATION}"
+            ),
+        )),
+        CrsForm::Broken(e) => Some((
+            Level::Poor,
+            format!("`{name}`: the Parquet `crs` cannot be read: {e}"),
+        )),
     }
 }
 
@@ -845,14 +1074,56 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
         }
     }
 
+    let root: Vec<Arc<SchemaType>> = meta
+        .file_metadata()
+        .schema_descr()
+        .root_schema()
+        .get_fields()
+        .to_vec();
+
+    // advice on the form of each native geometry column's Parquet `crs`, whatever the metadata
+    {
+        let mut native_fields: Vec<&Arc<SchemaType>> = Vec::new();
+        for f in &root {
+            if f.is_group() {
+                geo_leaves(f, &mut native_fields);
+            } else if is_geo_logical(&logical(f)) {
+                native_fields.push(f);
+            }
+        }
+        for f in native_fields {
+            if let Some((level, message)) = crs_advice(
+                f.name(),
+                &crs_form(parquet_crs(&logical(f)).as_deref(), &kv),
+            ) {
+                advice.borrow_mut().push(Advice {
+                    topic: "crs form",
+                    level,
+                    message,
+                });
+            }
+        }
+    }
+
     // /conf/core/geo-metadata
     let mut t = T::new(GEO_METADATA);
     let mut spec = Spec::V2_0;
+    // no `geo` key, but native GEOMETRY/GEOGRAPHY columns: core is not claimed, and the tests
+    // that concern the column data run as the native class
+    let mut native_only = false;
     let geo = match kv.get("geo") {
-        None => {
-            t.fail("no `geo` key in FileMetaData.key_value_metadata");
-            None
-        }
+        None => match native_geo(&root, &kv) {
+            Some(g) => {
+                native_only = true;
+                *rules.borrow_mut() = NATIVE_RULES.to_string();
+                t.note(NOT_CLAIMED_NATIVE);
+                Some(g)
+            }
+            None => {
+                t.fail("no `geo` key in FileMetaData.key_value_metadata, and no root column uses the Parquet GEOMETRY or GEOGRAPHY logical type");
+                None
+            }
+        },
         Some(s) => match serde_json::from_str::<Value>(s) {
             Ok(v @ Value::Object(_)) => {
                 match v.get("version").and_then(Value::as_str) {
@@ -927,12 +1198,6 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
     };
     out.push(t.finish());
 
-    let root: Vec<Arc<SchemaType>> = meta
-        .file_metadata()
-        .schema_descr()
-        .root_schema()
-        .get_fields()
-        .to_vec();
     let mut root_by_name: HashMap<&str, &Arc<SchemaType>> = HashMap::new();
     for f in &root {
         root_by_name.entry(f.name()).or_insert(f);
@@ -1822,6 +2087,51 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
                     bytes as f64 / 1e9
                 ),
             );
+        }
+    }
+
+    if native_only {
+        // /conf/native/crs: the Parquet `crs` can be read (its form is advice, not conformance)
+        let mut t = T::new(NATIVE_CRS);
+        for (name, f) in &geom_fields {
+            let param = parquet_crs(&logical(f));
+            match crs_form(param.as_deref(), &kv) {
+                CrsForm::Broken(e) => t.fail(format!("`{name}`: {e}")),
+                CrsForm::Recommended => {
+                    t.ok();
+                    t.note(format!(
+                        "`{name}`: {}",
+                        Crs::from_parquet(param.as_deref(), &kv).describe()
+                    ));
+                }
+                CrsForm::Srid(p) | CrsForm::ProjjsonKey(p) | CrsForm::Other(p) => {
+                    t.ok();
+                    t.note(format!(
+                        "`{name}`: `{p}`, well-formed but not a recommended form (see the crs form advice)"
+                    ));
+                }
+            }
+        }
+        let mut native = vec![t.finish()];
+        for o in out.iter_mut().filter(|o| o.class() == "core") {
+            if let Some(id) = native_counterpart(o.id) {
+                native.push(Outcome {
+                    id,
+                    status: o.status,
+                    message: o.message.clone(),
+                });
+            }
+            if o.id != GEO_METADATA {
+                *o = skip(o.id, NOT_CLAIMED_CORE);
+            }
+        }
+        out.extend(native);
+    } else {
+        for id in NATIVE_IDS {
+            out.push(skip(
+                id,
+                "not applicable: the file has GeoParquet `geo` metadata (see core)",
+            ));
         }
     }
 

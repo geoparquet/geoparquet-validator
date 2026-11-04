@@ -6,7 +6,7 @@
   "type": "object",
   "required": ["report_version", "tool", "file", "version", "rules", "sampled", "outcomes", "advice"],
   "properties": {
-    "report_version": { "const": 1 },
+    "report_version": { "const": 2 },
     "tool": {
       "type": "object",
       "required": ["name", "version"],
@@ -24,12 +24,12 @@
     },
     "outcomes": {
       "type": "array",
-      "description": "one entry per abstract test, always all 28, in document order",
+      "description": "one entry per abstract test, always all 36, in document order (the native class last)",
       "items": {
         "type": "object",
         "required": ["id", "status", "message"],
         "properties": {
-          "id": { "type": "string", "pattern": "^/conf/(core|covering|distribution)/[a-z0-9-]+$" },
+          "id": { "type": "string", "pattern": "^/conf/(core|covering|distribution|native)/[a-z0-9-]+$" },
           "status": { "enum": ["pass", "fail", "skip"] },
           "message": { "type": "string" }
         }
@@ -37,7 +37,7 @@
     },
     "advice": {
       "type": "array",
-      "description": "the distribution best practices measured on the file; never a conformance verdict",
+      "description": "the best practices measured on the file (distribution, and the form of the Parquet crs); never a conformance verdict",
       "items": {
         "type": "object",
         "required": ["topic", "level", "message"],
