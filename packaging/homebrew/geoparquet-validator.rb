@@ -8,23 +8,23 @@ class GeoparquetValidator < Formula
 
   on_macos do
     on_arm do
-      url "https://github.com/geoparquet/geoparquet-validator/releases/download/v0.3.0/geoparquet-validator-v0.3.0-aarch64-apple-darwin.tar.gz"
-      sha256 "7a4587c05de4eb8bdecb977ada86ab0840a2bd5f4d92bbf65b0e800efbd48961"
+      url "https://github.com/geoparquet/geoparquet-validator/releases/download/v0.3.1/geoparquet-validator-v0.3.1-aarch64-apple-darwin.tar.gz"
+      sha256 "6b4df32496e8ed3839b5b4ff54b5238e36e981882d69413a7771d04df8535c0b"
     end
     on_intel do
-      url "https://github.com/geoparquet/geoparquet-validator/releases/download/v0.3.0/geoparquet-validator-v0.3.0-x86_64-apple-darwin.tar.gz"
-      sha256 "6e494536e1dd6d7d2e33159922ddea822a02ae08ea722b786785eb0935354343"
+      url "https://github.com/geoparquet/geoparquet-validator/releases/download/v0.3.1/geoparquet-validator-v0.3.1-x86_64-apple-darwin.tar.gz"
+      sha256 "8c1e12475a75e881749d7915729841718d554402843e4abd6d46ce95bbac0366"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/geoparquet/geoparquet-validator/releases/download/v0.3.0/geoparquet-validator-v0.3.0-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "3b854bd41c684a80d70dba1bcb3bb536570d8f6db4f55afb72c182a3ad643ce2"
+      url "https://github.com/geoparquet/geoparquet-validator/releases/download/v0.3.1/geoparquet-validator-v0.3.1-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "a01be9ee1ad584c8f1e503acd6e37e8f4f863495b50e5a71ceead12f6f604397"
     end
     on_intel do
-      url "https://github.com/geoparquet/geoparquet-validator/releases/download/v0.3.0/geoparquet-validator-v0.3.0-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "7dd0e6609e8ece81d8db78e78c910c778e2237bc988b1764cf48e4c14b94f88d"
+      url "https://github.com/geoparquet/geoparquet-validator/releases/download/v0.3.1/geoparquet-validator-v0.3.1-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "8fddd16f80140836d9cfd4ddb134a7f71fc942995def979ad7ad295821661cef"
     end
   end
 
