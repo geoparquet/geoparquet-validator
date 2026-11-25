@@ -59,19 +59,20 @@ A report has four conformance classes, each `conformant`, `NOT CONFORMANT` or `n
 | Class | Applies to | Tests |
 | --- | --- | --- |
 | Core | files with GeoParquet `geo` metadata | 20 |
-| Native | Parquet files whose geometry columns use the native `GEOMETRY`/`GEOGRAPHY` logical types, without `geo` metadata | 8 |
+| Native | Parquet files whose geometry columns use the native `GEOMETRY`/`GEOGRAPHY` logical types, without `geo` metadata | 5 |
 | Bounding Box Covering | files that declare a `covering` | 6 |
 | Cloud-Optimized Distribution | an optional profile for direct cloud access | 2, plus the advice |
 
 A file without a `geo` key whose geometry columns use the native Parquet geospatial types (as
 written by DuckDB, Iceberg and the data platforms) is not a failed GeoParquet file: GeoParquet 2.0
 readers read it ([geoparquet#308](https://github.com/opengeospatial/geoparquet/issues/308)). Core is
-then not claimed, and the native class runs the core tests that concern the column data (column
-type, nesting, repetition, WKB, CRS) plus `/conf/native/crs`, that the Parquet `crs` is well-formed
-(PROJJSON that parses, a `projjson:` key that exists, a numeric `srid:`). The exit code then follows
-the native class; `--class core` exits 1 for such a file, since it does not claim core.
-The class will take the name the specification gives it
-([geoparquet#304](https://github.com/opengeospatial/geoparquet/issues/304)).
+then not claimed, and the native class runs the five tests of the OGC draft's Native Geospatial
+Types class ([geoparquet#304](https://github.com/opengeospatial/geoparquet/pull/304), Clause 9):
+column type, nesting, repetition, WKB and axis order. The exit code then follows the native class;
+`--class core` exits 1 for such a file, since it does not claim core. Whether the Parquet `crs` can be
+read (PROJJSON that parses and validates, a `projjson:` key that exists, a numeric `srid:`) and
+whether coordinates are longitude-latitude when it is unset are rules of the Parquet format, not of
+the class, so a problem there is advice (topic `crs`), never a failure.
 
 For every file with native geometry columns, the advice also checks the form of the Parquet `crs`
 against the specification's recommendation: inline PROJJSON or `<authority>:<code>`, `srid:0` for an
@@ -80,16 +81,22 @@ unknown CRS. Other forms (`srid:<n>`, `projjson:<key>`, anything else) get a not
 Each file is checked against the rules of the version it declares, under the same test identifiers,
 and the report says which rules were applied. For 1.0 and 1.1 that means their own JSON Schema, WKB
 plus the 1.1 GeoArrow encodings (checked structurally), planar and spherical edges only, and the bbox
-covering column's statistics as the source of row-group bounds. Spatial order is judged by pruning:
-20 random query windows of 10 % side, skip rate compared with an ideal tiling of the same number of
-row groups, pass at 70 % of it, no verdict below five row groups. CRS equality is by authority code;
+covering column's statistics as the source of row-group bounds. Spatial order is judged by pruning,
+with the Portolan spatial-order method that `gpio check spatial` uses from geoparquet-io 1.8.0: the
+expected share of the file's bytes that a query window skips (windows placed by row count and sized
+to 10 % of each row group's box, rows and compressed bytes from the footer, computed in closed form),
+over that of a near-square reference grid of the same number of row groups; a pass at 0.65, and no
+verdict below eight row groups. The method's published test vectors
+(`fixtures/spatial-metric-vectors.json`) are part of `cargo test`. CRS equality is by authority code;
 a PROJJSON without an identifier is reported as "cannot compare", not passed or failed.
 
 Every surface returns the same report, described by [`schemas/report.schema.json`](schemas/report.schema.json):
-the 36 outcomes (`pass`, `fail`, `skip`, each with a message), the version the file declares, the rules
+the 33 outcomes (`pass`, `fail`, `skip`, each with a message), the version the file declares, the rules
 applied, whether the data tests were sampled, and the advice. `report_version` is bumped
 when a field changes meaning; fields may be added without a bump. Version 2 added the native class: a file
 without `geo` metadata is no longer a core failure when its geometry columns use the native types.
+Version 3 (0.4.0) gives the native class the five tests of the OGC draft: `/conf/native/crs`,
+`/conf/native/crs-projjson` and `/conf/native/crs-default` are gone, and what they found is advice.
 
 **Command line, from any language**
 

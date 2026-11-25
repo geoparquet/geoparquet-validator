@@ -21,6 +21,10 @@ cd ../..            && cargo run --release -- verify fixtures/out   # compares w
 cargo run --release -- verify fixtures/out --update                   # after reviewing a change
 ```
 
+`spatial-metric-vectors.json` is Portolan's test-vector file for the spatial-order method
+(portolan-sdi/portolan-spec `specs/incubating/spatial-order/spatial-metric-vectors.json` at `9301ca9`,
+Apache-2.0), vendored verbatim; `cargo test` must reproduce every layout in it.
+
 The other layers of the suite: `cargo test` (WKB decoder and spatial metric unit tests), `corpus corpus`
 (the corpus submodule's `data/` must pass and `bad_data/` must fail the mapped test), and the remote
 smoke list in `remote_smoke.sh` (public files on S3/HTTPS; needs the network, not run in CI).
