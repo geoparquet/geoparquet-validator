@@ -51,25 +51,20 @@ pub const COV_NESTING: &str = "/conf/covering/bbox-column-nesting";
 pub const DIST_STATS: &str = "/conf/distribution/geospatial-statistics";
 pub const DIST_SPATIAL_ORDER: &str = "/conf/distribution/spatial-order";
 // Parquet files that use the native GEOMETRY/GEOGRAPHY logical types without GeoParquet `geo`
-// metadata (opengeospatial/geoparquet#308, conformance class to be named in #304). The tests
-// are the core tests that apply to the column data, plus the form of the Parquet `crs`.
+// metadata: the Native Geospatial Types class of the OGC draft (opengeospatial/geoparquet#304,
+// Clause 9, after #308). Its five tests are the core tests that apply to the column data. The
+// form and validity of the Parquet `crs` are Parquet's rules; they are reported as advice.
 pub const NATIVE_GEOMETRY_COLUMN_TYPE: &str = "/conf/native/geometry-column-type";
 pub const NATIVE_GEOMETRY_COLUMN_NESTING: &str = "/conf/native/geometry-column-nesting";
 pub const NATIVE_GEOMETRY_COLUMN_REPETITION: &str = "/conf/native/geometry-column-repetition";
 pub const NATIVE_WKB: &str = "/conf/native/wkb";
-pub const NATIVE_CRS: &str = "/conf/native/crs";
-pub const NATIVE_CRS_PROJJSON: &str = "/conf/native/crs-projjson";
-pub const NATIVE_CRS_DEFAULT: &str = "/conf/native/crs-default";
 pub const NATIVE_AXIS_ORDER: &str = "/conf/native/axis-order";
 
-const NATIVE_IDS: [&str; 8] = [
+const NATIVE_IDS: [&str; 5] = [
     NATIVE_GEOMETRY_COLUMN_TYPE,
     NATIVE_GEOMETRY_COLUMN_NESTING,
     NATIVE_GEOMETRY_COLUMN_REPETITION,
     NATIVE_WKB,
-    NATIVE_CRS,
-    NATIVE_CRS_PROJJSON,
-    NATIVE_CRS_DEFAULT,
     NATIVE_AXIS_ORDER,
 ];
 
@@ -84,14 +79,12 @@ fn native_counterpart(core: &str) -> Option<&'static str> {
         GEOMETRY_COLUMN_NESTING => NATIVE_GEOMETRY_COLUMN_NESTING,
         GEOMETRY_COLUMN_REPETITION => NATIVE_GEOMETRY_COLUMN_REPETITION,
         WKB => NATIVE_WKB,
-        CRS_PROJJSON => NATIVE_CRS_PROJJSON,
-        CRS_DEFAULT => NATIVE_CRS_DEFAULT,
         AXIS_ORDER => NATIVE_AXIS_ORDER,
         _ => return None,
     })
 }
 
-pub const ALL_IDS: [&str; 36] = [
+pub const ALL_IDS: [&str; 33] = [
     GEO_METADATA,
     FILE_METADATA,
     COLUMN_METADATA,
@@ -124,9 +117,6 @@ pub const ALL_IDS: [&str; 36] = [
     NATIVE_GEOMETRY_COLUMN_NESTING,
     NATIVE_GEOMETRY_COLUMN_REPETITION,
     NATIVE_WKB,
-    NATIVE_CRS,
-    NATIVE_CRS_PROJJSON,
-    NATIVE_CRS_DEFAULT,
     NATIVE_AXIS_ORDER,
 ];
 const COVERING_IDS: [&str; 6] = [
@@ -281,7 +271,9 @@ impl Tool {
 }
 
 /// The shape of the JSON report; see `schemas/report.schema.json`.
-pub const REPORT_VERSION: u32 = 2;
+/// 3 (0.4.0): the native class has five tests; `/conf/native/crs`, `crs-projjson` and
+/// `crs-default` became advice (topic "crs").
+pub const REPORT_VERSION: u32 = 3;
 
 impl Report {
     pub fn failed(&self, class: &str) -> Vec<&'static str> {
@@ -1881,8 +1873,18 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
 
     let metric = match &primary_boxes {
         Some(b) if b.iter().all(Option::is_some) => {
-            let boxes: Vec<[f64; 4]> = b.iter().flatten().copied().collect();
-            Some(spatial::measure(&boxes))
+            // rows and total compressed bytes from the footer, as the spatial-order method weighs them
+            let groups: Vec<spatial::Group> = b
+                .iter()
+                .flatten()
+                .zip(meta.row_groups())
+                .map(|(bbox, rg)| spatial::Group {
+                    bbox: *bbox,
+                    rows: rg.num_rows() as f64,
+                    bytes: rg.compressed_size() as f64,
+                })
+                .collect();
+            Some(spatial::measure(&groups))
         }
         _ => None,
     };
@@ -1900,8 +1902,20 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
                 Status::Fail
             },
             message: format!(
-                "{} row groups: skip rate {:.3} vs ideal tiling {:.3} (ratio {:.2}, pass at {:.2}); area factor {:.2}",
-                m.row_groups, m.file_skip, m.ideal_skip, m.ratio, spatial::PASS_RATIO, m.area_factor
+                "a typical query reads {:.0} % of the file's bytes, against {:.0} % achievable with {} row groups (efficiency {:.2}, pass at {:.2}); area sum {}; reads at 1 % / 25 % windows: {:.0} % / {:.0} %{}",
+                (1.0 - m.file_skip) * 100.0,
+                (1.0 - m.ideal_skip) * 100.0,
+                m.row_groups,
+                m.ratio,
+                spatial::PASS_RATIO,
+                m.area_sum.map_or("undefined (the extent has no area)".to_string(), |a| format!("{a:.2}")),
+                m.read_profile[0] * 100.0,
+                m.read_profile[2] * 100.0,
+                if m.ratio < spatial::PASS_RATIO {
+                    format!("; largest row-group boxes: {:?}", m.largest)
+                } else {
+                    String::new()
+                }
             ),
         },
     });
@@ -1923,8 +1937,8 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
                 "spatial ordering",
                 Level::Good,
                 format!(
-                    "the rows are well ordered: a query window can skip {:.0} % of the row groups, {:.0} % of what an ideal tiling of {} row groups would allow",
-                    m.file_skip * 100.0,
+                    "the rows are well ordered: a typical query reads {:.0} % of the file's bytes, {:.0} % as efficient as a reference grid of {} row groups",
+                    (1.0 - m.file_skip) * 100.0,
                     (m.ratio * 100.0).min(100.0),
                     m.row_groups
                 ),
@@ -1933,18 +1947,18 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
                 "spatial ordering",
                 Level::Consider,
                 format!(
-                    "the rows are ordered, but not tightly: a query window skips {:.0} % of the row groups against {:.0} % for an ideal tiling. Sorting by a space-filling curve (`ORDER BY ST_Hilbert(...)` in DuckDB, `gpio sort hilbert`) usually closes the gap",
-                    m.file_skip * 100.0,
-                    m.ideal_skip * 100.0
+                    "the rows are ordered, but not tightly: a typical query reads {:.0} % of the file's bytes against {:.0} % for a reference grid. Sorting by a space-filling curve (`ORDER BY ST_Hilbert(...)` in DuckDB, `gpio sort hilbert`) usually closes the gap",
+                    (1.0 - m.file_skip) * 100.0,
+                    (1.0 - m.ideal_skip) * 100.0
                 ),
             ),
             Some(Ok(m)) => add(
                 "spatial ordering",
                 Level::Poor,
                 format!(
-                    "the rows are not spatially ordered: a query window can skip only {:.0} % of the row groups, against {:.0} % for an ideal tiling, so readers download most of the file for a small area. Sort by a space-filling curve before publishing (`ORDER BY ST_Hilbert(...)` in DuckDB, `gpio sort hilbert`)",
-                    m.file_skip * 100.0,
-                    m.ideal_skip * 100.0
+                    "the rows are not spatially ordered: a typical query reads {:.0} % of the file's bytes, against {:.0} % for a reference grid, so readers download most of the file for a small area. Sort by a space-filling curve before publishing (`ORDER BY ST_Hilbert(...)` in DuckDB, `gpio sort hilbert`)",
+                    (1.0 - m.file_skip) * 100.0,
+                    (1.0 - m.ideal_skip) * 100.0
                 ),
             ),
             Some(Err(_)) if meta.num_row_groups() <= 1 => add(
@@ -2091,28 +2105,17 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
     }
 
     if native_only {
-        // /conf/native/crs: the Parquet `crs` can be read (its form is advice, not conformance)
-        let mut t = T::new(NATIVE_CRS);
+        // The Parquet `crs`: whether it can be read, a PROJJSON that validates, and longitude-
+        // latitude coordinates when it is unset. These are Parquet's rules, not requirements of
+        // the native class, so a problem is advice ("crs"), never a failure.
+        let mut crs_problems: Vec<String> = Vec::new();
         for (name, f) in &geom_fields {
             let param = parquet_crs(&logical(f));
-            match crs_form(param.as_deref(), &kv) {
-                CrsForm::Broken(e) => t.fail(format!("`{name}`: {e}")),
-                CrsForm::Recommended => {
-                    t.ok();
-                    t.note(format!(
-                        "`{name}`: {}",
-                        Crs::from_parquet(param.as_deref(), &kv).describe()
-                    ));
-                }
-                CrsForm::Srid(p) | CrsForm::ProjjsonKey(p) | CrsForm::Other(p) => {
-                    t.ok();
-                    t.note(format!(
-                        "`{name}`: `{p}`, well-formed but not a recommended form (see the crs form advice)"
-                    ));
-                }
+            if let CrsForm::Broken(e) = crs_form(param.as_deref(), &kv) {
+                crs_problems.push(format!("`{name}`: {e}"));
             }
         }
-        let mut native = vec![t.finish()];
+        let mut native = Vec::new();
         for o in out.iter_mut().filter(|o| o.class() == "core") {
             if let Some(id) = native_counterpart(o.id) {
                 native.push(Outcome {
@@ -2121,9 +2124,21 @@ pub fn run<S: Source>(src: &S, schemas: &Schemas, opts: &Options) -> Result<Repo
                     message: o.message.clone(),
                 });
             }
+            if (o.id == CRS_PROJJSON || o.id == CRS_DEFAULT) && o.status == Status::Fail {
+                crs_problems.push(o.message.clone());
+            }
             if o.id != GEO_METADATA {
                 *o = skip(o.id, NOT_CLAIMED_CORE);
             }
+        }
+        for message in crs_problems {
+            advice.borrow_mut().push(Advice {
+                topic: "crs",
+                level: Level::Poor,
+                message: format!(
+                    "the Parquet `crs` of a geometry column is not usable: {message}. This breaks a rule of the Parquet format, not of the native class"
+                ),
+            });
         }
         out.extend(native);
     } else {

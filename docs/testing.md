@@ -7,10 +7,11 @@ numbers are reproduced by CI or by the scripts named.
 
 Four layers, all but the last in CI (`.github/workflows/ci.yml`):
 
-1. `cargo test`: unit tests of the WKB decoder and the spatial-order metric.
+1. `cargo test`: unit tests of the WKB decoder and the spatial-order metric, which must reproduce every
+   layout in Portolan's published test vectors (`fixtures/spatial-metric-vectors.json`).
 2. `geoparquet-validator corpus corpus`: the corpus submodule's `data/` must pass Core and `bad_data/` must fail
    the test mapped from its `expected_failure`.
-3. `geoparquet-validator verify fixtures/out`: 198 generated fixtures in four sets (the author's, and
+3. `geoparquet-validator verify fixtures/out`: 208 generated fixtures in four sets (the author's, and
    the spec, hostile and code reviewers') against `fixtures/expected.json`, the manifest of which
    tests must fail for each file. See [`fixtures/README.md`](fixtures/README.md).
 4. `fixtures/remote_smoke.sh`: the public files on S3 and HTTPS listed in the results below (needs the network).
@@ -60,7 +61,7 @@ No crash, hang or memory blow-up was found; the verdict and text problems they f
 bounded WKB allocations and count checks, Multi* member type and dimension checks, NaN only allowed
 for empty points, shoelace computed relative to the first vertex, the ideal tiling with exactly n
 tiles, non-finite statistics rejected, one-dimensional extents measured, wrapping row-group boxes
-split, strict `<authority>:<code>` parsing and PROJJSON `ids`, CRS comparison never by name, inconclusive
+split (since 0.4.0, widened to the full longitude range instead, so the row-group count stays the file's), strict `<authority>:<code>` parsing and PROJJSON `ids`, CRS comparison never by name, inconclusive
 CRS comparisons reported as notes instead of failures, `geo-metadata` validated against the published
 schema (and `crs-projjson` against the PROJJSON `crs` definition), the antimeridian form of `bbox`
 required to be justified by the data, a missing `columns` member no longer failing nesting, a missing

@@ -1,17 +1,48 @@
-//! Spatial-order metric of /conf/distribution/spatial-order: skip rate over sample windows,
-//! relative to an ideal tiling of the extent into the same number of row groups. Parameters
-//! follow `gpio check spatial` (geoparquet-io PR #774): 20 windows spanning 10 % of each
-//! dimension, seed 42, pass at 0.70 of the ideal, verdict withheld below five row groups. The
-//! window sequence itself differs from gpio's (different random generator), so verdicts near
-//! the threshold can differ between the two tools.
+//! Spatial-order metric of /conf/distribution/spatial-order: the pruning efficiency of the
+//! Portolan spatial-order method (portolan-spec `specs/incubating/spatial-order.md`), which
+//! `gpio check spatial` implements from geoparquet-io 1.8.0 (PR #774).
+//!
+//! A query window is centred in row group `i` with probability `rows_i / N`, uniformly within its
+//! box, and spans 10 % of each dimension of that box. The skip rate is the expected share of the
+//! file's bytes (`total_compressed_size`) in row groups the window misses, computed in closed form.
+//! Efficiency is that skip rate over the one of a near-square reference grid of the same number of
+//! cells, clipped at 1. A file passes at 0.65. Below eight row groups the boxes are not judged:
+//! the method sends such files to its row check, which, as in gpio, this tool does not run.
+//! `fixtures/spatial-metric-vectors.json` is the method's test-vector file, vendored verbatim.
 
-pub const WINDOWS: usize = 20;
-pub const WINDOW_FRACTION: f64 = 0.10; // window side as a fraction of the extent side
-pub const SEED: u64 = 42;
-pub const PASS_RATIO: f64 = 0.70;
-/// Below this many row groups an ideal grid is a poor model of what a sort can achieve; the
-/// numbers are reported but no verdict is given (gpio #774 does the same).
-pub const MIN_ROW_GROUPS: usize = 5;
+pub const QUERY_FRACTION: f64 = 0.10;
+/// The read shares reported beside the verdict (1 %, 10 % and 25 % windows).
+pub const REPORT_FRACTIONS: [f64; 3] = [0.01, QUERY_FRACTION, 0.25];
+pub const PASS_RATIO: f64 = 0.65;
+/// The method must not judge fewer row groups by their boxes (a grid is a poor model of a curve
+/// sort at small counts).
+pub const MIN_ROW_GROUPS: usize = 8;
+const ZERO_SKIP: f64 = 1e-9;
+
+/// A row-group box [xmin, ymin, xmax, ymax] with its row and byte counts.
+#[derive(Debug, Clone, Copy)]
+pub struct Group {
+    pub bbox: [f64; 4],
+    pub rows: f64,
+    pub bytes: f64,
+}
+
+#[derive(Debug)]
+pub struct Scores {
+    pub count: usize,
+    /// expected share of the bytes a 10 % window skips
+    pub achieved: f64,
+    /// the same for the reference grid
+    pub achievable: f64,
+    /// `min(1, achieved / achievable)`; None when the reference skips nothing
+    pub efficiency: Option<f64>,
+    /// sum of the box areas over the extent area; None when the extent has no area
+    pub area_sum: Option<f64>,
+    /// expected read share (1 - skip) at the 1 %, 10 % and 25 % windows
+    pub read_profile: [f64; 3],
+    /// up to three row groups with the largest boxes, largest first
+    pub largest: Vec<usize>,
+}
 
 #[derive(Debug)]
 pub struct Metric {
@@ -19,207 +50,277 @@ pub struct Metric {
     pub file_skip: f64,
     pub ideal_skip: f64,
     pub ratio: f64,
-    /// sum of row-group bbox areas (lengths, for a one-dimensional extent) over the extent
-    pub area_factor: f64,
+    pub area_sum: Option<f64>,
+    pub read_profile: [f64; 3],
+    pub largest: Vec<usize>,
 }
 
-fn intersects(a: &[f64; 4], b: &[f64; 4]) -> bool {
-    !(a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1])
-}
-
-fn skip_rate(boxes: &[[f64; 4]], windows: &[[f64; 4]]) -> f64 {
-    windows
-        .iter()
-        .map(|w| boxes.iter().filter(|b| !intersects(b, w)).count() as f64 / boxes.len() as f64)
-        .sum::<f64>()
-        / windows.len() as f64
-}
-
-/// Exactly `n` tiles covering the extent: a grid of `cols` columns; the last row holds the
-/// remainder, stretched across the full width.
-fn ideal_tiling(ext: &[f64; 4], n: usize) -> Vec<[f64; 4]> {
-    let (w, h) = (ext[2] - ext[0], ext[3] - ext[1]);
-    if h == 0.0 || w == 0.0 {
-        // one-dimensional extent: n equal strips along the non-degenerate axis
-        return (0..n)
-            .map(|i| {
-                let (a, b) = (i as f64 / n as f64, (i + 1) as f64 / n as f64);
-                if h == 0.0 {
-                    [ext[0] + a * w, ext[1], ext[0] + b * w, ext[3]]
-                } else {
-                    [ext[0], ext[1] + a * h, ext[2], ext[1] + b * h]
-                }
-            })
-            .collect();
+/// Chance that a coordinate drawn uniformly on [a0, a1] falls in [g0, g1]; a span with no width
+/// puts all its probability on a0.
+fn axis_share(a0: f64, a1: f64, g0: f64, g1: f64) -> f64 {
+    if a1 <= a0 {
+        return if g0 <= a0 && a0 <= g1 { 1.0 } else { 0.0 };
     }
+    ((a1.min(g1) - a0.max(g0)) / (a1 - a0)).clamp(0.0, 1.0)
+}
+
+fn skip_rate(groups: &[Group], fraction: f64) -> f64 {
+    let n_rows: f64 = groups.iter().map(|g| g.rows).sum();
+    let n_bytes: f64 = groups.iter().map(|g| g.bytes).sum();
+    if groups.is_empty() || n_rows <= 0.0 || n_bytes <= 0.0 {
+        return 0.0;
+    }
+    let mut read = 0.0;
+    for src in groups {
+        let [ax0, ay0, ax1, ay1] = src.bbox;
+        let (hw, hh) = (fraction * (ax1 - ax0) / 2.0, fraction * (ay1 - ay0) / 2.0);
+        let mut hit = 0.0;
+        for dst in groups {
+            let [bx0, by0, bx1, by1] = dst.bbox;
+            let p =
+                axis_share(ax0, ax1, bx0 - hw, bx1 + hw) * axis_share(ay0, ay1, by0 - hh, by1 + hh);
+            hit += p * dst.bytes / n_bytes;
+        }
+        read += src.rows / n_rows * hit;
+    }
+    let rate = 1.0 - read;
+    if rate.abs() <= ZERO_SKIP {
+        0.0
+    } else {
+        rate.clamp(0.0, 1.0)
+    }
+}
+
+fn extent(groups: &[Group]) -> [f64; 4] {
+    groups.iter().fold(
+        [
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ],
+        |e, g| {
+            [
+                e[0].min(g.bbox[0]),
+                e[1].min(g.bbox[1]),
+                e[2].max(g.bbox[2]),
+                e[3].max(g.bbox[3]),
+            ]
+        },
+    )
+}
+
+/// The method's reference layout: `ceil(sqrt(n))` columns, `ceil(n / cols)` rows, the last row's
+/// cells stretched to span the full width; uniform rows and bytes.
+fn reference_grid(ext: &[f64; 4], n: usize) -> Vec<Group> {
     let cols = (n as f64).sqrt().ceil() as usize;
-    let full_rows = n / cols;
-    let rest = n % cols;
-    let rows = full_rows + usize::from(rest > 0);
-    let rh = h / rows as f64;
-    let mut tiles = Vec::with_capacity(n);
+    let rows = n.div_ceil(cols);
+    let last = n - cols * (rows - 1);
+    let rh = (ext[3] - ext[1]) / rows as f64;
+    let mut cells = Vec::with_capacity(n);
     for r in 0..rows {
-        let ncols = if r < full_rows { cols } else { rest };
-        let cw = w / ncols as f64;
-        for c in 0..ncols {
+        let in_row = if r + 1 < rows { cols } else { last };
+        let cw = (ext[2] - ext[0]) / in_row as f64;
+        for c in 0..in_row {
             let (x0, y0) = (ext[0] + c as f64 * cw, ext[1] + r as f64 * rh);
-            tiles.push([x0, y0, x0 + cw, y0 + rh]);
+            cells.push(Group {
+                bbox: [x0, y0, x0 + cw, y0 + rh],
+                rows: 1.0,
+                bytes: 1.0,
+            });
         }
     }
-    tiles
+    cells
 }
 
-/// `boxes` are the row-group statistics bounding boxes [xmin, ymin, xmax, ymax]; a box with
-/// xmin > xmax wraps the antimeridian and is split in two for the measurement.
-pub fn measure(boxes: &[[f64; 4]]) -> Result<Metric, String> {
-    let n = boxes.len();
-    if n < 2 {
-        return Err(format!("{n} row group(s): pruning cannot be measured"));
+fn area(b: &[f64; 4]) -> f64 {
+    (b[2] - b[0]) * (b[3] - b[1])
+}
+
+/// The method's numbers for any layout, whatever its size (the test vectors score layouts of one
+/// to twenty boxes).
+pub fn scores(groups: &[Group]) -> Scores {
+    let n = groups.len();
+    let ext = extent(groups);
+    let achieved = skip_rate(groups, QUERY_FRACTION);
+    let achievable = if n == 0 {
+        0.0
+    } else {
+        skip_rate(&reference_grid(&ext, n), QUERY_FRACTION)
+    };
+    let ext_area = if n == 0 { 0.0 } else { area(&ext) };
+    let mut ranked: Vec<usize> = (0..n).collect();
+    ranked.sort_by(|&a, &b| area(&groups[b].bbox).total_cmp(&area(&groups[a].bbox)));
+    ranked.truncate(3);
+    Scores {
+        count: n,
+        achieved,
+        achievable,
+        efficiency: (achievable > ZERO_SKIP).then(|| (achieved / achievable).min(1.0)),
+        area_sum: (ext_area > 0.0)
+            .then(|| groups.iter().map(|g| area(&g.bbox)).sum::<f64>() / ext_area),
+        read_profile: REPORT_FRACTIONS.map(|f| 1.0 - skip_rate(groups, f)),
+        largest: ranked,
     }
-    if n < MIN_ROW_GROUPS {
-        return Err(format!(
-            "{n} row groups: verdict withheld below {MIN_ROW_GROUPS} (an ideal grid is a poor model for so few; see geoparquet-io #774)"
-        ));
-    }
-    if let Some(i) = boxes.iter().position(|b| b.iter().any(|v| !v.is_finite())) {
+}
+
+/// The footer check. `groups` are the row groups of the primary geometry column, in file order.
+/// A box with xmin > xmax wraps the antimeridian; it is widened to the full longitude range, so no
+/// query can skip it on that axis (the method does not define wrapping boxes; gpio scores them as
+/// points on that axis).
+pub fn measure(groups: &[Group]) -> Result<Metric, String> {
+    let n = groups.len();
+    if let Some(i) = groups
+        .iter()
+        .position(|g| g.bbox.iter().any(|v| !v.is_finite()))
+    {
         return Err(format!(
             "row group {i} has non-finite geospatial statistics"
         ));
     }
-    let mut parts: Vec<[f64; 4]> = Vec::with_capacity(n);
-    for b in boxes {
-        if b[0] > b[2] {
-            parts.push([b[0], b[1], 180.0, b[3]]);
-            parts.push([-180.0, b[1], b[2], b[3]]);
-        } else {
-            parts.push(*b);
-        }
+    if n < MIN_ROW_GROUPS {
+        return Err(format!(
+            "not judged: {n} row group{}. The spatial-order method judges row-group boxes from {MIN_ROW_GROUPS} row groups up, and sends smaller files to a row check that this tool does not run (as geoparquet-io)",
+            if n == 1 { "" } else { "s" }
+        ));
     }
-    let ext = parts
+    let groups: Vec<Group> = groups
         .iter()
-        .fold([f64::MAX, f64::MAX, f64::MIN, f64::MIN], |e, b| {
-            [
-                e[0].min(b[0]),
-                e[1].min(b[1]),
-                e[2].max(b[2]),
-                e[3].max(b[3]),
-            ]
-        });
-    let (w, h) = (ext[2] - ext[0], ext[3] - ext[1]);
-    if w == 0.0 && h == 0.0 {
-        return Err("all row groups share a single point; there is nothing to prune".into());
-    }
-    let mut state = SEED;
-    let mut rnd = || {
-        state = state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        (state >> 11) as f64 / (1u64 << 53) as f64
-    };
-    let (ww, wh) = (w * WINDOW_FRACTION, h * WINDOW_FRACTION);
-    let windows: Vec<[f64; 4]> = (0..WINDOWS)
-        .map(|_| {
-            let x0 = ext[0] + rnd() * (w - ww);
-            let y0 = ext[1] + rnd() * (h - wh);
-            [x0, y0, x0 + ww, y0 + wh]
+        .map(|g| {
+            let mut g = *g;
+            if g.bbox[0] > g.bbox[2] {
+                g.bbox[0] = -180.0;
+                g.bbox[2] = 180.0;
+            }
+            g.rows = g.rows.max(1.0);
+            g.bytes = g.bytes.max(1.0);
+            g
         })
         .collect();
-    let ideal = ideal_tiling(&ext, n);
-    let file_skip = skip_rate(&parts, &windows);
-    let ideal_skip = skip_rate(&ideal, &windows);
-    let measure = |b: &[f64; 4]| {
-        if w == 0.0 {
-            b[3] - b[1]
-        } else if h == 0.0 {
-            b[2] - b[0]
-        } else {
-            (b[2] - b[0]) * (b[3] - b[1])
-        }
-    };
-    let extent = if w == 0.0 {
-        h
-    } else if h == 0.0 {
-        w
-    } else {
-        w * h
+    let s = scores(&groups);
+    let Some(ratio) = s.efficiency else {
+        return Err("not judged: the efficiency is undefined, because no query window can miss any row group (the extent is a single point)".into());
     };
     Ok(Metric {
         row_groups: n,
-        file_skip,
-        ideal_skip,
-        ratio: if ideal_skip > 0.0 {
-            file_skip / ideal_skip
-        } else {
-            1.0
-        },
-        area_factor: parts.iter().map(measure).sum::<f64>() / extent,
+        file_skip: s.achieved,
+        ideal_skip: s.achievable,
+        ratio,
+        area_sum: s.area_sum,
+        read_profile: s.read_profile,
+        largest: s.largest,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
 
-    fn grid(side: usize) -> Vec<[f64; 4]> {
-        (0..side * side)
-            .map(|i| {
-                let (c, r) = ((i % side) as f64, (i / side) as f64);
-                [c, r, c + 1.0, r + 1.0]
+    const VECTORS: &str = include_str!("../fixtures/spatial-metric-vectors.json");
+
+    fn layout(v: &Value) -> Vec<Group> {
+        let boxes = v["boxes"].as_array().unwrap();
+        let weight = |key: &str, i: usize| v.get(key).map_or(1.0, |a| a[i].as_f64().unwrap());
+        boxes
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                let b: Vec<f64> = b
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.as_f64().unwrap())
+                    .collect();
+                // "A layout without byte counts uses s_i = r_i."
+                let rows = weight("rows", i);
+                Group {
+                    bbox: [b[0], b[1], b[2], b[3]],
+                    rows,
+                    bytes: v.get("sizes").map_or(rows, |a| a[i].as_f64().unwrap()),
+                }
             })
             .collect()
     }
 
-    #[test]
-    fn perfect_grids_score_one_and_strips_score_high() {
-        for side in [3usize, 4, 5] {
-            let m = measure(&grid(side)).unwrap();
-            assert!(
-                (m.ratio - 1.0).abs() < 1e-9,
-                "n={} ratio={}",
-                side * side,
-                m.ratio
-            );
-            assert!((m.area_factor - 1.0).abs() < 1e-9);
-        }
-        // equal strips are a tiling too, but a grid prunes square windows better: high, not 1.0
-        let strips: Vec<[f64; 4]> = (0..6)
-            .map(|i| [i as f64, 0.0, i as f64 + 1.0, 1.0])
-            .collect();
-        let m = measure(&strips).unwrap();
-        assert!(m.ratio > 0.75 && m.ratio <= 1.0, "ratio={}", m.ratio);
-    }
-
-    #[test]
-    fn tiling_has_exactly_n_tiles_and_covers_the_extent() {
-        for n in 2..40 {
-            let t = ideal_tiling(&[0.0, 0.0, 4.0, 2.0], n);
-            assert_eq!(t.len(), n);
-            let area: f64 = t.iter().map(|b| (b[2] - b[0]) * (b[3] - b[1])).sum();
-            assert!((area - 8.0).abs() < 1e-9, "n={n}");
+    fn close(name: &str, field: &str, got: Option<f64>, want: &Value) {
+        match (got, want.as_f64()) {
+            (None, None) => {}
+            (Some(g), Some(w)) => assert!(
+                (g - w).abs() <= 5e-7,
+                "{name}: {field} = {g:.6}, expected {w:.6}"
+            ),
+            (g, _) => panic!("{name}: {field} = {g:?}, expected {want}"),
         }
     }
 
     #[test]
-    fn identical_boxes_fail_and_bad_input_is_rejected() {
-        assert!(measure(&[[0.0, 0.0, 1.0, 1.0]; 6]).unwrap().ratio < 0.01);
-        let mut inf = grid(3);
-        inf[4][2] = f64::INFINITY;
-        assert!(measure(&inf).unwrap_err().contains("non-finite"));
-        assert!(
-            measure(&[[0.0, 0.0, 0.0, 0.0]; 6])
-                .unwrap_err()
-                .contains("single point")
-        );
-        assert!(measure(&grid(2)).unwrap_err().contains("withheld"));
-        assert!(
-            measure(&[[0.0, 0.0, 1.0, 1.0]])
-                .unwrap_err()
-                .contains("cannot be measured")
-        );
-        // one-dimensional extent still measurable
-        let strips: Vec<[f64; 4]> = (0..6)
-            .map(|i| [0.0, i as f64, 0.0, i as f64 + 1.0])
+    fn reproduces_every_layout_vector() {
+        let v: Value = serde_json::from_str(VECTORS).unwrap();
+        let layouts = v["layouts"].as_object().unwrap();
+        assert!(layouts.len() >= 13);
+        for (name, case) in layouts {
+            let e = &case["expected"];
+            let groups = layout(case);
+            let s = scores(&groups);
+            assert_eq!(s.count as u64, e["count"].as_u64().unwrap(), "{name}");
+            close(name, "achieved", Some(s.achieved), &e["achieved"]);
+            close(name, "achievable", Some(s.achievable), &e["achievable"]);
+            close(name, "efficiency", s.efficiency, &e["efficiency"]);
+            close(name, "area_sum", s.area_sum, &e["area_sum"]);
+            let below = s.efficiency.map(|x| x < PASS_RATIO);
+            assert_eq!(below, e["below_bar"].as_bool(), "{name}: below_bar");
+            let verdict = match measure(&groups) {
+                Ok(m) if m.ratio >= PASS_RATIO => "pass",
+                Ok(_) => "fail",
+                Err(_) => "row-check",
+            };
+            assert_eq!(verdict, e["verdict"].as_str().unwrap(), "{name}: verdict");
+        }
+    }
+
+    #[test]
+    fn bad_input_is_not_judged() {
+        let g = |b: [f64; 4]| Group {
+            bbox: b,
+            rows: 1.0,
+            bytes: 1.0,
+        };
+        let mut boxes: Vec<Group> = (0..9)
+            .map(|i| g([i as f64, 0.0, i as f64 + 1.0, 1.0]))
             .collect();
-        assert!(measure(&strips).unwrap().ratio > 0.99);
+        boxes[4].bbox[2] = f64::INFINITY;
+        assert!(measure(&boxes).unwrap_err().contains("non-finite"));
+        assert!(
+            measure(&[g([0.0; 4]); 9])
+                .unwrap_err()
+                .contains("undefined")
+        );
+        assert!(
+            measure(&[g([0.0, 0.0, 1.0, 1.0]); 7])
+                .unwrap_err()
+                .contains("7 row groups")
+        );
+    }
+
+    #[test]
+    fn a_wrapping_box_is_never_skipped_on_longitude() {
+        let mut groups: Vec<Group> = (0..8)
+            .map(|i| Group {
+                bbox: [
+                    -180.0 + 45.0 * i as f64,
+                    -10.0,
+                    -135.0 + 45.0 * i as f64,
+                    10.0,
+                ],
+                rows: 1.0,
+                bytes: 1.0,
+            })
+            .collect();
+        let tiled = measure(&groups).unwrap();
+        groups[7].bbox = [170.0, -10.0, -170.0, 10.0];
+        let wrapped = measure(&groups).unwrap();
+        assert!(wrapped.file_skip < tiled.file_skip);
+        assert!(wrapped.largest[0] == 7);
     }
 }
